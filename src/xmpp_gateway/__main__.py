@@ -22,7 +22,7 @@ async def run(config_path: str) -> None:
         from .protocols.onebot_v11.server import OneBotV11
         tasks.append(OneBotV11(cfg.onebot_v11, bus, idmap, xmpp).run())
 
-    xmpp.connect()
+    xmpp.start()
     await asyncio.gather(*tasks)
 
 

@@ -8,6 +8,7 @@ class XmppCfg(BaseModel):
     password: str
     server: str = ""
     port: int = 5222
+    tls: str = "starttls"  # starttls | direct | none（none 仅限本地测试）
     rooms: list[str] = []
     nick: str = "bot"
 

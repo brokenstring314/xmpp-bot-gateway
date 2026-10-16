@@ -9,3 +9,5 @@ data/
 omemo_store/
 .pytest_cache/
 dist/
+.test_user.json
+tests/prosody/run/

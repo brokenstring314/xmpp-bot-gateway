@@ -6,6 +6,8 @@ password = "change-me"
 # 留空则从 JID 域名自动解析 SRV
 server = ""
 port = 5222
+# starttls | direct | none（none 仅限本地测试服务器）
+tls = "starttls"
 # 要自动加入的群聊（MUC）
 rooms = ["room@conference.example.org"]
 nick = "bot"
