@@ -1,0 +1,32 @@
+# 复制为 config.toml 后填写
+
+[xmpp]
+jid = "bot@example.org"
+password = "change-me"
+# 留空则从 JID 域名自动解析 SRV
+server = ""
+port = 5222
+# 要自动加入的群聊（MUC）
+rooms = ["room@conference.example.org"]
+nick = "bot"
+
+[omemo]
+enabled = false          # P1 阶段启用
+trust = "btbv"           # btbv | manual
+store_dir = "data/omemo"
+
+[storage]
+db = "data/gateway.db"   # JID <-> int64 ID 映射、消息 ID 映射
+
+[onebot_v11]
+enabled = true
+# 反向 WS：协议端作为客户端连接 AstrBot / NoneBot
+reverse_ws = ["ws://127.0.0.1:6199/ws"]
+access_token = ""
+heartbeat_interval = 5000
+
+[satori]
+enabled = false          # P3 阶段，接 Koishi
+host = "127.0.0.1"
+port = 5140
+token = ""

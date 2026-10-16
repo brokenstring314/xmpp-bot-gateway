@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+config.toml
+data/
+*.db
+*.sqlite
+omemo_store/
+.pytest_cache/
+dist/

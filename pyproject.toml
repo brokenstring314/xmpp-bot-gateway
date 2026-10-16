@@ -1,0 +1,30 @@
+[project]
+name = "xmpp-bot-gateway"
+version = "0.0.1"
+description = "XMPP protocol side for bot frameworks (OneBot v11 / Satori), with OMEMO"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "slixmpp>=1.8",
+  "aiohttp>=3.9",
+  "pydantic>=2.6",
+  "aiosqlite>=0.20",
+  "tomli-w>=1.0",
+]
+
+[project.optional-dependencies]
+omemo = ["slixmpp-omemo", "oldmemo", "twomemo"]
+dev = ["pytest", "pytest-asyncio", "ruff"]
+
+[project.scripts]
+xmpp-gateway = "xmpp_gateway.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/xmpp_gateway"]
+
+[tool.ruff]
+line-length = 100
