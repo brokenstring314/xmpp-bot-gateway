@@ -1,22 +1,49 @@
 # xmpp-bot-gateway
 
-XMPP 的 bot 协议端：就像 NapCat 之于 QQ。它登录一个 bot 的 JID，把 XMPP 消息翻译成标准 bot 协议，让 **AstrBot、NoneBot、Koishi** 或自研框架直接接入。目标是支持 **OMEMO** 端到端加密，与 Conversations、Gajim 互通。
+A standalone gateway that logs in to an XMPP account and exposes its direct chats and group chats (MUC) over the OneBot v11 protocol, so OneBot v11 bot frameworks can run on XMPP.
 
 ```
-Conversations / Gajim ⇄ XMPP 服务器 ⇄ xmpp-bot-gateway ⇄ OneBot v11 / Satori ⇄ AstrBot / Koishi / NoneBot
+XMPP clients ⇄ XMPP server ⇄ xmpp-bot-gateway ⇄ OneBot v11 (reverse WebSocket) ⇄ bot framework
 ```
 
-## 状态
-P0 骨架阶段：明文单聊、群聊，OneBot v11 反向 WebSocket。详见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+## Features
 
-## 快速开始
+- Plaintext direct chats and MUC group chats (joins configured rooms, creates them as instant rooms if new, skips history replay)
+- OneBot v11 reverse WebSocket (Universal role) with optional access token, auto-reconnect with backoff
+- Meta events: `lifecycle` (connect) and `heartbeat`
+- Message events: `message.private`, `message.group`; array or CQ-code string format
+- Mentions: a group message starting with `<bot nick>:` arrives as an `at` segment; outgoing `at` segments become `<nick>: `
+- Media: `image` / `record` / `video` / `file` segments with an http(s) URL are sent as a link with XEP-0066 OOB
+- Retraction: `delete_msg` retracts messages sent by the gateway (XEP-0424)
+- Stable numeric IDs for users, groups and messages, persisted in SQLite
+- Automatic XMPP reconnect; rooms are rejoined after reconnecting
+
+### Supported actions
+
+`send_private_msg`, `send_group_msg`, `send_msg`, `delete_msg`, `get_msg`, `get_login_info`, `get_status`, `get_version_info`, `can_send_image`, `can_send_record`, `get_friend_list`, `get_stranger_info`, `get_group_list`, `get_group_info`, `get_group_member_list`, `get_group_member_info`, `set_group_leave`.
+
+Unsupported actions return `retcode 1404`. Failed actions return `status: "failed"` with a `wording` explaining why.
+
+## Quick start
+
 ```bash
 uv venv && uv pip install -e .
-cp config.example.toml config.toml   # 填写 JID、密码、AstrBot 反向 WS 地址
+cp config.example.toml config.toml   # set JID, password, rooms and the reverse WS URL
 xmpp-gateway -c config.toml
 ```
 
-AstrBot：WebUI → 平台 → 添加适配器 → OneBot v11，把反向 WS 地址填进本项目 `onebot_v11.reverse_ws`。
+In your bot framework, add a OneBot v11 adapter that listens for a reverse WebSocket connection, and put its URL in `onebot_v11.reverse_ws`.
 
-## 为什么不是 OneBot 12
-OneBot 12 实际生态很小；AstrBot 只支持 v11，Koishi 推 Satori，NoneBot2 两者都支持。所以顺序是 v11 → Satori → v12。
+## Tests
+
+```bash
+tests/prosody/run.sh &           # local Prosody on 127.0.0.1:15222 with random test accounts
+python3 -m pytest -q tests/test_cq.py
+python3 -u tests/e2e_p0.py       # end-to-end against a mock OneBot v11 app
+```
+
+`tests/e2e_astrbot.py` runs the same round trip against a running AstrBot instance with a OneBot v11 adapter on `127.0.0.1:6199`.
+
+## Status
+
+Early development. See [docs/ROADMAP.md](docs/ROADMAP.md).

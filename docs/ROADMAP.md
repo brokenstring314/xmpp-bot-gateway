@@ -1,6 +1,6 @@
 # Roadmap
 
-- **P0 打通**：明文单聊 + MUC 群聊，OneBot v11 反向 WS 接 AstrBot；Conversations / Gajim 实测
+- **P0 打通**（已完成，见 tests/e2e_p0.py 与 tests/e2e_astrbot.py）：明文单聊 + MUC 群聊，OneBot v11 反向 WS、心跳/生命周期、常用动作、XEP-0424 撤回自己的消息、OOB 链接；Conversations / Gajim 实机测试待做
 - **P1 加密**：OMEMO 单聊（兼容 `eu.siacs.conversations.axolotl` 与 `urn:xmpp:omemo:2`）、密钥加密持久化、信任策略（BTBV / 手动）
 - **P2 富消息**：图片/文件（XEP-0363 HTTP Upload + XEP-0066 OOB）、回复（XEP-0461）、@（XEP-0372）、撤回（XEP-0424）、回执（XEP-0184）、MAM 补拉（XEP-0313）
 - **P3 多协议**：Satori 接 Koishi，OneBot 12 / Milky 视需求

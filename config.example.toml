@@ -25,7 +25,10 @@ enabled = true
 # 反向 WS：协议端作为客户端连接 AstrBot / NoneBot
 reverse_ws = ["ws://127.0.0.1:6199/ws"]
 access_token = ""
-heartbeat_interval = 5000
+heartbeat_interval = 5000   # ms, <= 0 disables heartbeat
+message_format = "array"    # array | string (CQ code)
+event_max_age = 60          # s, events queued longer than this while disconnected are dropped (0 = keep all)
+reconnect_max = 30          # s, max backoff between reverse WS reconnects
 
 [satori]
 enabled = false          # P3 阶段，接 Koishi

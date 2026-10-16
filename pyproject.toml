@@ -1,7 +1,7 @@
 [project]
 name = "xmpp-bot-gateway"
 version = "0.0.1"
-description = "XMPP protocol side for bot frameworks (OneBot v11 / Satori), with OMEMO"
+description = "XMPP gateway exposing direct and group chats over the OneBot v11 protocol"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

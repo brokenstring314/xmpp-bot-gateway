@@ -27,7 +27,10 @@ class OneBotV11Cfg(BaseModel):
     enabled: bool = True
     reverse_ws: list[str] = []
     access_token: str = ""
-    heartbeat_interval: int = 5000
+    heartbeat_interval: int = 5000   # ms；<=0 关闭心跳
+    message_format: str = "array"    # array | string（CQ 码）
+    event_max_age: int = 60          # s；断线期间积压超过该时长的事件不再推送，0 不限
+    reconnect_max: int = 30          # s；反向 WS 重连最大退避
 
 
 class SatoriCfg(BaseModel):

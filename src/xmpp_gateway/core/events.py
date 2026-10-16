@@ -11,7 +11,7 @@ class Scene(str, Enum):
 
 @dataclass
 class Segment:
-    type: Literal["text", "image", "file", "reply", "at"]
+    type: Literal["text", "image", "file", "reply", "at"]  # at.data: {"target": JID}
     data: dict = field(default_factory=dict)
 
 
@@ -25,3 +25,5 @@ class MessageEvent:
     segments: list[Segment]
     encrypted: bool = False    # 是否经 OMEMO 解密
     time: float = 0.0
+    sender_name: str = ""      # 单聊：花名册名称或 localpart；群聊：房间昵称
+    sender_role: str = "none"  # 群聊：MUC affiliation（owner/admin/member/none/outcast）

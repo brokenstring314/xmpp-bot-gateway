@@ -1,24 +1,39 @@
 """XMPP 客户端（slixmpp）。P0：明文单聊 + MUC。P1 在此接入 OMEMO。"""
+import asyncio
 import logging
 import time
+import uuid
 
 import slixmpp
+from slixmpp.xmlstream import ET
 
 from ..core.events import MessageEvent, Scene, Segment
 
 log = logging.getLogger(__name__)
+
+NS_DELAY = "{urn:xmpp:delay}delay"
+NS_RETRACT = "urn:xmpp:message-retract:1"
+NS_FALLBACK = "urn:xmpp:fallback:0"
+NS_OOB = "jabber:x:oob"
 
 
 class GatewayXMPP(slixmpp.ClientXMPP):
     def __init__(self, cfg, bus, idmap) -> None:
         super().__init__(cfg.jid, cfg.password)
         self.cfg, self.bus, self.idmap = cfg, bus, idmap
-        for xep in ("xep_0030", "xep_0004", "xep_0045", "xep_0199", "xep_0280", "xep_0313", "xep_0359", "xep_0363"):
+        for xep in ("xep_0030", "xep_0004", "xep_0045", "xep_0066", "xep_0199", "xep_0280",
+                    "xep_0313", "xep_0359", "xep_0363"):
             self.register_plugin(xep)
+        self.online = False
+        self._stopping = False
+        self._backoff = 2
         self.add_event_handler("session_start", self._on_start)
+        self.add_event_handler("disconnected", self._on_disconnected)
+        self.add_event_handler("connection_failed", self._on_disconnected)
         self.add_event_handler("message", self._on_message)
         self.add_event_handler("groupchat_message", self._on_groupchat)
 
+    # ---------- 连接 / 重连 ----------
     def start(self) -> None:
         """按配置连接：server 为空时走 DNS SRV；tls=none 仅用于本地测试服务器。"""
         tls = self.cfg.tls
@@ -30,12 +45,33 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             self.plugin["feature_mechanisms"].unencrypted_plain = True
         self.connect(host=self.cfg.server or None, port=self.cfg.port if self.cfg.server else None)
 
+    async def stop(self) -> None:
+        self._stopping = True
+        self.disconnect()
+
+    async def _on_disconnected(self, reason=None) -> None:
+        was_online, self.online = self.online, False
+        if self._stopping:
+            return
+        if was_online:
+            self._backoff = 2
+        log.warning("XMPP disconnected (%s); reconnecting in %ss", reason, self._backoff)
+        await asyncio.sleep(self._backoff)
+        self._backoff = min(self._backoff * 2, 60)
+        if not self._stopping and not self.online:
+            self.start()
+
     async def _on_start(self, _):
         self.send_presence()
         await self.get_roster()
+        self.online = True
+        self._backoff = 2
         log.info("XMPP session started as %s", self.boundjid.bare)
         for room in self.cfg.rooms:
-            await self.join_room(room)
+            try:
+                await self.join_room(room)
+            except Exception as e:  # noqa: BLE001  单个房间失败不影响其他房间与单聊
+                log.error("failed to join room %s: %s", room, e)
 
     async def join_room(self, room: str) -> None:
         muc = self.plugin["xep_0045"]
@@ -49,31 +85,91 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             log.info("created instant room %s", room)
         log.info("joined room %s", room)
 
+    # ---------- 入站 ----------
+    @staticmethod
+    def _msg_id(msg) -> str:
+        for sid in msg.xml.findall("{urn:xmpp:sid:0}stanza-id"):
+            if sid.get("by") == msg["from"].bare and sid.get("id"):
+                return sid.get("id")
+        oid = msg.xml.find("{urn:xmpp:sid:0}origin-id")
+        if oid is not None and oid.get("id"):
+            return oid.get("id")
+        return msg["id"] or uuid.uuid4().hex
+
     def _on_message(self, msg):
         if msg["type"] not in ("chat", "normal") or not msg["body"]:
             return
         if not msg["from"].user:
             return  # 服务器本身发来的通知（如欢迎消息），不是用户消息
-        if not msg["from"].user:
-            return  # 服务器本身发来的通知（如欢迎消息），不是用户消息
+        if msg.xml.find(NS_DELAY) is not None and msg["type"] == "normal":
+            return
+        is_muc_pm = msg["from"].bare in self.rooms() and msg["from"].resource
+        # MUC 私信保留完整 room/nick 作为用户身份；普通单聊用 bare JID
+        sender = str(msg["from"]) if is_muc_pm else msg["from"].bare
+        roster_name = self.client_roster[msg["from"].bare]["name"] if not is_muc_pm else ""
         self.bus.publish(MessageEvent(
-            scene=Scene.PRIVATE, self_jid=self.boundjid.bare, sender_jid=msg["from"].bare,
-            room_jid=None, message_id=msg["id"] or "", segments=[Segment("text", {"text": msg["body"]})],
-            time=time.time(),
+            scene=Scene.PRIVATE, self_jid=self.boundjid.bare, sender_jid=sender,
+            room_jid=None, message_id=self._msg_id(msg),
+            segments=[Segment("text", {"text": msg["body"]})], time=time.time(),
+            sender_name=roster_name or (msg["from"].resource if is_muc_pm else msg["from"].user),
         ))
 
     def _on_groupchat(self, msg):
-        if msg["mucnick"] == self.cfg.nick or not msg["body"]:
-            return  # 忽略自己的回显
-        if msg.xml.find("{urn:xmpp:delay}delay") is not None:
+        if msg["mucnick"] == self.cfg.nick or not msg["body"] or not msg["mucnick"]:
+            return  # 忽略自己的回显和房间本身的通知
+        if msg.xml.find(NS_DELAY) is not None:
             return  # 历史回放 / 离线补发的群消息，P0 先不推送
-        if msg.xml.find("{urn:xmpp:delay}delay") is not None:
-            return  # 历史回放 / 离线补发的群消息，P0 先不推送
+        room, nick = msg["from"].bare, msg["mucnick"]
+        real = self.plugin["xep_0045"].get_jid_property(room, nick, "jid")
+        sender = real.bare if real else str(msg["from"])  # 非匿名房间用真实 JID，跨房间 ID 一致
+        body = msg["body"]
+        segments: list[Segment] = []
+        me = self.cfg.nick
+        for sep in (":", ",", "，", "："):
+            if body.startswith(me + sep):          # XMPP 惯例：「nick: 内容」即提及
+                segments.append(Segment("at", {"target": self.boundjid.bare}))
+                body = body[len(me) + 1:].lstrip()
+                break
+        segments.append(Segment("text", {"text": body}))
         self.bus.publish(MessageEvent(
-            scene=Scene.GROUP, self_jid=self.boundjid.bare, sender_jid=str(msg["from"]),
-            room_jid=msg["from"].bare, message_id=msg["id"] or "",
-            segments=[Segment("text", {"text": msg["body"]})], time=time.time(),
+            scene=Scene.GROUP, self_jid=self.boundjid.bare, sender_jid=sender,
+            room_jid=room, message_id=self._msg_id(msg), segments=segments, time=time.time(),
+            sender_name=nick,
+            sender_role=self.plugin["xep_0045"].get_jid_property(room, nick, "affiliation") or "none",
         ))
 
-    def send_text(self, to: str, text: str, group: bool) -> None:
-        self.send_message(mto=to, mbody=text, mtype="groupchat" if group else "chat")
+    # ---------- 出站 ----------
+    def rooms(self) -> list[str]:
+        return [str(r) for r in self.plugin["xep_0045"].get_joined_rooms()]
+
+    def send_rich(self, to: str, text: str, group: bool, urls: list[str] | None = None) -> str:
+        """发送文本（可附带 OOB 链接），返回出站消息 id（同时作为 origin-id）。"""
+        msg = self.make_message(mto=to, mbody=text, mtype="groupchat" if group else "chat")
+        mid = uuid.uuid4().hex
+        msg["id"] = mid
+        ET.SubElement(msg.xml, "{urn:xmpp:sid:0}origin-id", {"id": mid})  # XEP-0359
+        if urls:
+            msg["oob"]["url"] = urls[0]   # XEP-0066：客户端可内联显示
+        msg.send()
+        return mid
+
+    def send_retract(self, to: str, origin_id: str, group: bool) -> None:
+        """XEP-0424 撤回自己发出的消息。"""
+        msg = self.make_message(mto=to, mtype="groupchat" if group else "chat",
+                                mbody="This person attempted to retract a previous message, "
+                                      "but it's unsupported by your client.")
+        ET.SubElement(msg.xml, f"{{{NS_RETRACT}}}retract", {"id": origin_id})
+        ET.SubElement(msg.xml, f"{{{NS_FALLBACK}}}fallback", {"for": NS_RETRACT})
+        ET.SubElement(msg.xml, "{urn:xmpp:hints}store")
+        msg.send()
+
+    def nick_for(self, room: str, user: str) -> str | None:
+        """把用户身份（真实 JID 或 room/nick）换成房间内昵称。"""
+        if user.startswith(room + "/"):
+            return user.split("/", 1)[1]
+        muc = self.plugin["xep_0045"]
+        for nick in muc.get_roster(room) or []:
+            j = muc.get_jid_property(room, nick, "jid")
+            if j and j.bare == user:
+                return nick
+        return None
