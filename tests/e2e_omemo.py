@@ -35,7 +35,7 @@ class OmemoUser(slixmpp.ClientXMPP):
         self.bot_jid = bot_jid
         self.use_message_ids = True
         self.register_plugin("xep_0380")
-        self.register_plugin("xep_0384", {"store_path": f"{WORK}/user.json", "btbv": True}, module=omemo_mod)
+        self.register_plugin("xep_0384", {"store_path": f"{WORK}/user-{jid}.json", "btbv": True}, module=omemo_mod)
         self.ready = asyncio.Event()
         self.add_event_handler("session_start", self.start)
         self.add_event_handler("message", self.on_msg)

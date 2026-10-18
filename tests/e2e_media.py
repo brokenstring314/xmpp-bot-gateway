@@ -83,7 +83,7 @@ class User(slixmpp.ClientXMPP):
         for x in ("xep_0030", "xep_0066", "xep_0359", "xep_0363", "xep_0380"):
             self.register_plugin(x)
         self.use_message_ids = True
-        self.register_plugin("xep_0384", {"store_path": f"{WORK}/user.json", "btbv": True}, module=omemo_mod)
+        self.register_plugin("xep_0384", {"store_path": f"{WORK}/user-{jid}.json", "btbv": True}, module=omemo_mod)
         self.inbox: list = []   # (stanza, decrypted body or None)
         self.ready = asyncio.Event()
         self.add_event_handler("session_start", self._start)
