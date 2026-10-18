@@ -14,7 +14,7 @@ class Gateway:
         self.cfg = load_config(config_path)
         self.idmap = IdMap(self.cfg.storage.db)
         self.bus = EventBus()
-        self.xmpp = GatewayXMPP(self.cfg.xmpp, self.bus, self.idmap)
+        self.xmpp = GatewayXMPP(self.cfg.xmpp, self.bus, self.idmap, self.cfg.omemo)
         self.onebot = None
         self._tasks: list[asyncio.Task] = []
 

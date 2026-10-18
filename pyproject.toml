@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-omemo = ["slixmpp-omemo", "oldmemo", "twomemo"]
+omemo = ["slixmpp-omemo>=2.2", "oldmemo[xml]>=2.0", "twomemo[xml]>=2.0"]
 dev = ["pytest", "pytest-asyncio", "ruff"]
 
 [project.scripts]

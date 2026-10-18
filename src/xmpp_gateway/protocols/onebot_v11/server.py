@@ -229,7 +229,10 @@ class OneBotV11:
             raise ActionError(100, "empty message")
         if not self.xmpp.online:
             raise ActionError(100, "XMPP not connected")
-        xid = self.xmpp.send_rich(target, body, group, urls)
+        try:
+            xid = await self.xmpp.send_rich(target, body, group, urls)
+        except Exception as e:  # noqa: BLE001  如 OMEMO 加密失败
+            raise ActionError(100, f"send failed: {e}") from e
         mid = await self.idmap.save_message(
             scene="group" if group else "private", chat=target, sender=self.xmpp.boundjid.bare,
             sender_name=self.xmpp.cfg.nick, xmpp_id=xid, outgoing=True, segments=segments)

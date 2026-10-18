@@ -15,9 +15,11 @@ nick = "bot"
 accept_invites = true
 
 [omemo]
-enabled = false          # P1 阶段启用
-trust = "btbv"           # btbv | manual
-store_dir = "data/omemo"
+# 单聊 OMEMO 加密；需安装可选依赖：pip install -e ".[omemo]"
+# 对方用 OMEMO 发来消息时解密，回复也加密；对方改发明文后回复恢复明文
+enabled = false
+trust = "btbv"           # btbv：自动信任新设备 | manual：不自动信任，未信任设备收不到加密消息
+store_dir = "data/omemo" # 身份密钥与会话（JSON，权限 600），请妥善备份与保管
 
 [storage]
 db = "data/gateway.db"   # JID <-> int64 ID 映射、消息 ID 映射
