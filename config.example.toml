@@ -11,6 +11,8 @@ tls = "starttls"
 # 要自动加入的群聊（MUC）
 rooms = ["room@conference.example.org"]
 nick = "bot"
+# 收到群邀请（XEP-0045 / XEP-0249）时自动加入
+accept_invites = true
 
 [omemo]
 enabled = false          # P1 阶段启用

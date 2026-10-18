@@ -11,6 +11,7 @@ class XmppCfg(BaseModel):
     tls: str = "starttls"  # starttls | direct | none（none 仅限本地测试）
     rooms: list[str] = []
     nick: str = "bot"
+    accept_invites: bool = True  # 收到群邀请时自动加入
 
 
 class OmemoCfg(BaseModel):

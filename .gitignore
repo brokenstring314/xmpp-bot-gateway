@@ -11,3 +11,4 @@ omemo_store/
 dist/
 .test_user.json
 tests/prosody/run/
+.test_bots.json

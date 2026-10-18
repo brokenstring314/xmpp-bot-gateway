@@ -22,7 +22,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         super().__init__(cfg.jid, cfg.password)
         self.cfg, self.bus, self.idmap = cfg, bus, idmap
         for xep in ("xep_0030", "xep_0004", "xep_0045", "xep_0066", "xep_0199", "xep_0280",
-                    "xep_0313", "xep_0359", "xep_0363"):
+                    "xep_0249", "xep_0313", "xep_0359", "xep_0363"):
             self.register_plugin(xep)
         self.online = False
         self._stopping = False
@@ -32,6 +32,8 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         self.add_event_handler("connection_failed", self._on_disconnected)
         self.add_event_handler("message", self._on_message)
         self.add_event_handler("groupchat_message", self._on_groupchat)
+        self.add_event_handler("groupchat_invite", self._on_invite)          # XEP-0045 mediated
+        self.add_event_handler("groupchat_direct_invite", self._on_invite)   # XEP-0249 direct
 
     # ---------- 连接 / 重连 ----------
     def start(self) -> None:
@@ -71,7 +73,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             try:
                 await self.join_room(room)
             except Exception as e:  # noqa: BLE001  单个房间失败不影响其他房间与单聊
-                log.error("failed to join room %s: %s", room, e)
+                log.error("failed to join room %s: %r", room, e)
 
     async def join_room(self, room: str) -> None:
         muc = self.plugin["xep_0045"]
@@ -96,9 +98,28 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             return oid.get("id")
         return msg["id"] or uuid.uuid4().hex
 
+    async def _on_invite(self, inv) -> None:
+        if not self.cfg.accept_invites:
+            return
+        room = inv["groupchat_invite"]["jid"] if inv.xml.find("{jabber:x:conference}x") is not None else inv["from"].bare
+        room = str(room).split("/")[0]
+        if not room or room in self.rooms():
+            return
+        log.info("invited to %s by %s, joining", room, inv["from"])
+        try:
+            await self.join_room(room)
+        except Exception as e:  # noqa: BLE001
+            log.error("failed to join invited room %s: %s", room, e)
+
     def _on_message(self, msg):
+        if msg["type"] == "error":
+            log.warning("error from %s: %s %s", msg["from"], msg["error"]["condition"], msg["error"]["text"])
+            return
         if msg["type"] not in ("chat", "normal") or not msg["body"]:
             return
+        if msg.xml.find("{jabber:x:conference}x") is not None or \
+                msg.xml.find("{http://jabber.org/protocol/muc#user}x/{http://jabber.org/protocol/muc#user}invite") is not None:
+            return  # 群邀请由 _on_invite 处理
         if not msg["from"].user:
             return  # 服务器本身发来的通知（如欢迎消息），不是用户消息
         if msg.xml.find(NS_DELAY) is not None and msg["type"] == "normal":
