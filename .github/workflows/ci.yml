@@ -1,0 +1,27 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y prosody && sudo systemctl stop prosody || true
+      - run: pip install -e ".[omemo,dev]"
+      - run: ruff check src --select F,E9,B,S --ignore S101,S110
+      - run: python -m pytest -q tests/test_cq.py tests/test_props.py
+      - name: start local Prosody
+        run: |
+          setsid bash tests/prosody/run.sh > /tmp/prosody.log 2>&1 < /dev/null &
+          for i in $(seq 30); do nc -z 127.0.0.1 15222 && break; sleep 1; done
+      - run: python -u tests/e2e_p0.py
+      - run: python -u tests/e2e_media.py
+      - run: python -u tests/e2e_reply.py
+      - run: python -u tests/e2e_mam.py
+      - run: python -u tests/e2e_redteam.py
+      - run: python -u tests/e2e_chaos.py
+      - if: failure()
+        run: tail -50 /tmp/prosody.log tests/prosody/run/prosody.log || true

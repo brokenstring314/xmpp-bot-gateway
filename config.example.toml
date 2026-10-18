@@ -38,6 +38,7 @@ local_file_dirs = []          # if set, outgoing file:// paths must be inside on
 
 [storage]
 db = "data/gateway.db"   # JID <-> int64 ID 映射、消息 ID 映射
+keep_days = 30           # message records older than this are pruned (0 = keep forever)
 
 [onebot_v11]
 enabled = true

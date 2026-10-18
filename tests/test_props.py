@@ -97,3 +97,25 @@ def test_take_reply_fuzz(body, start, end, rid):
     out, r = GatewayXMPP._take_reply(_Msg(m), body)
     if r is not None:
         assert out + r.data["fallback"] == body or len(out) + len(r.data["fallback"]) == len(body)
+
+
+def test_idmap_prune():
+    import asyncio
+    import time as _t
+    from xmpp_gateway.core.idmap import IdMap
+
+    async def run():
+        with tempfile.TemporaryDirectory() as d:
+            m = IdMap(os.path.join(d, "g.db"), keep_days=1)
+            await m.open()
+            old = await m.save_message(scene="private", chat="a@x", sender="a@x", sender_name="", xmpp_id="o1,o2",
+                                       outgoing=False, segments=[], ts=_t.time() - 3 * 86400)
+            new = await m.save_message(scene="private", chat="a@x", sender="a@x", sender_name="", xmpp_id="n1",
+                                       outgoing=False, segments=[])
+            uid = await m.to_int("user", "a@x")
+            await m.prune()
+            assert await m.get_message(old) is None and await m.find_message("a@x", "o2") is None
+            assert await m.get_message(new) is not None and await m.find_message("a@x", "n1") == new
+            assert await m.to_int("user", "a@x") == uid   # 用户/群 ID 永不删除
+            await m.close()
+    asyncio.run(run())

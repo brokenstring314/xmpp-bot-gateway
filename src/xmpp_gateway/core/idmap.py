@@ -41,14 +41,30 @@ BASE = 10_000_000  # 避开小数字，便于肉眼区分
 
 
 class IdMap:
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, keep_days: int = 30) -> None:
         self.path = path
+        self.keep_days = keep_days
         self.db: aiosqlite.Connection | None = None
+        self._saves = 0
 
     async def open(self) -> None:
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         self.db = await aiosqlite.connect(self.path)
+        await self.db.execute("PRAGMA journal_mode=WAL")
+        await self.db.execute("PRAGMA synchronous=NORMAL")
         await self.db.executescript(SCHEMA)
+        await self.db.commit()
+        await self.prune()
+
+    async def prune(self) -> None:
+        """删除超过 keep_days 的消息记录（及其 ID 映射和别名），防止数据库无限增长。"""
+        if not self.keep_days or not self.db:
+            return
+        cutoff = int(time.time()) - self.keep_days * 86400
+        await self.db.execute("DELETE FROM ids WHERE kind='message' AND id IN (SELECT id FROM messages WHERE time < ?)",
+                              (cutoff,))
+        await self.db.execute("DELETE FROM messages WHERE time < ?", (cutoff,))
+        await self.db.execute("DELETE FROM msg_alias WHERE message_id - ? NOT IN (SELECT id FROM messages)", (BASE,))
         await self.db.commit()
 
     async def close(self) -> None:
@@ -83,6 +99,9 @@ class IdMap:
             for part in xmpp_id.split(","):
                 await self.db.execute("INSERT OR REPLACE INTO msg_alias VALUES (?,?,?)", (chat, part, mid))
         await self.db.commit()
+        self._saves += 1
+        if self._saves % 1000 == 0:
+            await self.prune()
         return mid
 
     async def find_message(self, chat: str, xmpp_id: str) -> int | None:
@@ -122,7 +141,7 @@ class IdMap:
         if not row:
             return None
         keys = ("scene", "chat", "sender", "sender_name", "xmpp_id", "outgoing", "segments", "time")
-        d = dict(zip(keys, row))
+        d = dict(zip(keys, row, strict=True))
         d["segments"] = json.loads(d["segments"])
         d["outgoing"] = bool(d["outgoing"])
         return d

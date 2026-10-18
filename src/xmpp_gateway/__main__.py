@@ -12,7 +12,7 @@ from .xmpp.client import GatewayXMPP
 class Gateway:
     def __init__(self, config_path: str) -> None:
         self.cfg = load_config(config_path)
-        self.idmap = IdMap(self.cfg.storage.db)
+        self.idmap = IdMap(self.cfg.storage.db, self.cfg.storage.keep_days)
         self.bus = EventBus()
         self.xmpp = GatewayXMPP(self.cfg.xmpp, self.bus, self.idmap, self.cfg.omemo, self.cfg.media)
         self.onebot = None

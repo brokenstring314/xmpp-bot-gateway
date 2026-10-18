@@ -47,6 +47,7 @@ class MediaCfg(BaseModel):
 
 class StorageCfg(BaseModel):
     db: str = "data/gateway.db"
+    keep_days: int = 30   # 消息记录（get_msg / 回复 / 撤回用）保留天数；0 永久保留
 
 
 class OneBotV11Cfg(BaseModel):
