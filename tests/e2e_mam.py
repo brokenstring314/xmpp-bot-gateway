@@ -109,7 +109,7 @@ async def main():
     db = f"{WORK}/gateway.db"
     if os.path.exists(db):
         os.unlink(db)
-    cfg = {"xmpp": {**acc["bot"], "server": "127.0.0.1", "port": 15222, "tls": "none", "nick": "bot", "rooms": [room]},
+    cfg = {"xmpp": {"rate_limit": 0, **acc["bot"], "server": "127.0.0.1", "port": 15222, "tls": "none", "nick": "bot", "rooms": [room]},
            "storage": {"db": db},
            "onebot_v11": {"enabled": True, "reverse_ws": [f"ws://127.0.0.1:{PORT}/ws"], "reconnect_max": 2}}
     path = f"{WORK}/gateway.toml"

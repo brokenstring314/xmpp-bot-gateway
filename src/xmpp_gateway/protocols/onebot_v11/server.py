@@ -259,7 +259,7 @@ class OneBotV11:
             raise ActionError(100, f"{seg.get('type')} segment has no file")
         limit = self.xmpp.media_cfg.max_size_mb * 1024 * 1024
         try:
-            data, name, mime = media.load_source(src, d.get("name"), limit)
+            data, name, mime = media.load_source(src, d.get("name"), limit, self.xmpp.media_cfg.local_file_dirs)
         except (OSError, ValueError) as e:
             raise ActionError(100, f"cannot read {seg.get('type')}: {e}") from e
         try:

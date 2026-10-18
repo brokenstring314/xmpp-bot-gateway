@@ -2,10 +2,16 @@
 import base64
 import hashlib
 import io
+import ipaddress
 import mimetypes
-import os
+import re
+import socket
+import stat
 from pathlib import Path
 from urllib.parse import unquote, urlparse
+
+import aiohttp
+from aiohttp.abc import AbstractResolver
 
 from slixmpp.plugins.xep_0454 import XEP_0454
 
@@ -16,7 +22,8 @@ VIDEO_EXT = {"mp4", "webm", "mov", "mkv", "3gp"}
 
 def ext_of(url_or_name: str) -> str:
     path = urlparse(url_or_name).path if "://" in url_or_name else url_or_name
-    return Path(unquote(path)).suffix.lower().lstrip(".")
+    ext = Path(unquote(path)).suffix.lower().lstrip(".")
+    return ext if re.fullmatch(r"[a-z0-9]{1,8}", ext) else ""
 
 
 def kind_of(url_or_name: str) -> str | None:
@@ -47,22 +54,95 @@ def sniff_ext(data: bytes) -> str:
     return "bin"
 
 
-def load_source(src: str, name: str | None, max_bytes: int) -> tuple[bytes, str, str]:
-    """解析 base64:// 或 file:// / 本地路径，返回 (内容, 文件名, MIME)。"""
+def load_source(src: str, name: str | None, max_bytes: int,
+                allowed_dirs: list[str] | None = None) -> tuple[bytes, str, str]:
+    """解析 base64:// 或 file:// / 本地路径，返回 (内容, 文件名, MIME)。
+    allowed_dirs 非空时，本地文件必须位于其中某个目录下（按真实路径判断，防 ../ 和符号链接逃逸）。"""
     if src.startswith("base64://"):
-        data = base64.b64decode(src[len("base64://"):])
+        b64 = src[len("base64://"):]
+        if len(b64) > max_bytes * 4 // 3 + 8:
+            raise ValueError("file too large")
+        data = base64.b64decode(b64)
     else:
-        path = unquote(urlparse(src).path) if src.startswith("file://") else src
-        if os.path.getsize(path) > max_bytes:
+        path = Path(unquote(urlparse(src).path) if src.startswith("file://") else src).resolve()
+        if allowed_dirs and not any(path.is_relative_to(Path(d).resolve()) for d in allowed_dirs):
+            raise ValueError(f"local file outside allowed directories: {path}")
+        st = path.stat()
+        if not stat.S_ISREG(st.st_mode):   # 拒绝 /dev/zero、FIFO 等
+            raise ValueError(f"not a regular file: {path}")
+        if st.st_size > max_bytes:
             raise ValueError(f"file too large: {path}")
-        data = Path(path).read_bytes()
-        name = name or Path(path).name
+        with path.open("rb") as f:
+            data = f.read(max_bytes + 1)
+        name = name or path.name
     if len(data) > max_bytes:
         raise ValueError("file too large")
     if not name or "." not in name:
         name = f"{hashlib.sha256(data).hexdigest()[:16]}.{sniff_ext(data)}"
     mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
     return data, name, mime
+
+
+def check_public_url(url: str) -> None:
+    """拒绝主机名为内网/本机 IP 字面量的链接（域名在连接时由 PublicResolver 检查）。"""
+    host = urlparse(url).hostname or ""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        if not host:
+            raise ValueError("url has no host") from None
+        return
+    if not ip.is_global:
+        raise ValueError(f"refusing non-public address {ip}")
+
+
+class PublicResolver(AbstractResolver):
+    """只放行公网地址的 DNS 解析器：在真正连接时检查，防 SSRF 与 DNS rebinding。"""
+
+    def __init__(self) -> None:
+        self._r = aiohttp.ThreadedResolver()
+
+    async def resolve(self, host: str, port: int = 0, family: int = socket.AF_INET):
+        infos = await self._r.resolve(host, port, family)
+        for i in infos:
+            ip = ipaddress.ip_address(i["host"])
+            if not ip.is_global:
+                raise OSError(f"refusing non-public address {ip} for {host}")
+        return infos
+
+    async def close(self) -> None:
+        await self._r.close()
+
+
+async def download(url: str, limit: int, allow_private: bool = False) -> bytes:
+    """下载入站媒体：限制大小、不跟随重定向；默认只允许公网地址。"""
+    if not allow_private:
+        check_public_url(url)
+    conn = aiohttp.TCPConnector(resolver=PublicResolver()) if not allow_private else aiohttp.TCPConnector()
+    async with aiohttp.ClientSession(connector=conn, timeout=aiohttp.ClientTimeout(total=60)) as http:
+        async with http.get(url, allow_redirects=False) as r:
+            r.raise_for_status()
+            if r.status != 200:
+                raise ValueError(f"unexpected HTTP status {r.status}")
+            if int(r.headers.get("Content-Length") or 0) > limit:
+                raise ValueError("file too large")
+            buf = bytearray()
+            async for chunk in r.content.iter_chunked(65536):
+                buf += chunk
+                if len(buf) > limit:
+                    raise ValueError("file too large")
+    return bytes(buf)
+
+
+def prune_dir(d: Path, max_bytes: int) -> None:
+    """目录总大小超过上限时按修改时间删除最旧的文件。"""
+    files = [(p.stat().st_mtime, p.stat().st_size, p) for p in d.iterdir() if p.is_file()]
+    total = sum(s for _, s, _ in files)
+    for _, size, p in sorted(files):
+        if total <= max_bytes:
+            break
+        p.unlink(missing_ok=True)
+        total -= size
 
 
 def aesgcm_encrypt(data: bytes) -> tuple[bytes, str]:

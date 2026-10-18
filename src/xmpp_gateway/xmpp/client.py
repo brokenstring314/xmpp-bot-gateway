@@ -27,6 +27,11 @@ NS_RETRACT = "urn:xmpp:message-retract:1"
 NS_OOB = "jabber:x:oob"
 
 
+def _log_failure(t: asyncio.Future) -> None:
+    if not t.cancelled() and t.exception():
+        log.error("message handler failed", exc_info=t.exception())
+
+
 class GatewayXMPP(slixmpp.ClientXMPP):
     def __init__(self, cfg, bus, idmap, omemo_cfg=None, media_cfg=None) -> None:
         super().__init__(cfg.jid, cfg.password)
@@ -39,6 +44,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         self.register_plugin("xep_0184", {"auto_ack": True, "auto_request": False})
         self._seen: OrderedDict[str, None] = OrderedDict()   # 最近推送过的「会话|消息 id」，MAM 补拉去重
         self._catchup_task: asyncio.Task | None = None
+        self._rate: dict[str, list[float]] = {}
         self._reflected: dict[tuple[str, str], str] = {}  # (room, 自己消息的 origin-id) -> 房间分配的 stanza-id
         self.omemo = bool(omemo_cfg and omemo_cfg.enabled)
         self._omemo_peers: set[str] = set()   # 最近一条消息是 OMEMO 加密的单聊对象 → 回复也加密
@@ -139,6 +145,9 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         n = 0
         async for res in mam.iterate(jid=slixmpp.JID(room) if room else None, start=start,
                                      total=self.cfg.mam_max_messages, rsm={"max": 25}):
+            if res["from"] and res["from"].bare != (room or self.boundjid.bare):
+                log.warning("ignoring MAM result from unexpected sender %s", res["from"])
+                continue
             fwd = res["mam_result"]["forwarded"]
             inner = fwd["stanza"]
             stamp = fwd["delay"]["stamp"]
@@ -154,6 +163,24 @@ class GatewayXMPP(slixmpp.ClientXMPP):
                     n += await self._process_message(inner, archived_ts=ts)
         if n:
             log.info("MAM catch-up: %d missed message(s) from %s", n, room or "private chats")
+
+    def _allow(self, sender: str) -> bool:
+        """每个发送者每分钟最多 rate_limit 条（滑动窗口）。"""
+        limit = self.cfg.rate_limit
+        if limit <= 0:
+            return True
+        now = time.monotonic()
+        q = self._rate.setdefault(sender, [])
+        q[:] = [t for t in q if now - t < 60]
+        if len(q) >= limit:
+            if len(q) == limit:
+                log.warning("rate limit: dropping messages from %s", sender)
+                q.append(now)   # 只记一次警告
+            return False
+        q.append(now)
+        if len(self._rate) > 10000:
+            self._rate.clear()
+        return True
 
     def _fresh(self, chat: str, mid: str) -> bool:
         k = f"{chat}|{mid}"
@@ -171,6 +198,8 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             self.bus.publish(ev)
             return 1
         if not self._fresh(chat, ev.message_id):
+            return 0
+        if not ev.archived and not self._allow(ev.sender_jid):
             return 0
         if ev.archived and await self.idmap.find_message(chat, ev.message_id) is not None:
             return 0
@@ -225,12 +254,29 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             break
         return body, Segment("reply", {"xmpp_id": r.get("id"), "fallback": quote})
 
+    def _trusted(self, jid: str) -> bool:
+        """admins 或花名册中有订阅关系的联系人。"""
+        if jid in self.cfg.admins:
+            return True
+        return jid in self.client_roster and \
+            self.client_roster[jid]["subscription"] in ("both", "from", "to")
+
     async def _on_invite(self, inv) -> None:
-        if not self.cfg.accept_invites:
+        policy = self.cfg.accept_invites
+        if policy == "none":
             return
-        room = inv["groupchat_invite"]["jid"] if inv.xml.find("{jabber:x:conference}x") is not None else inv["from"].bare
+        direct = inv.xml.find("{jabber:x:conference}x") is not None
+        room = inv["groupchat_invite"]["jid"] if direct else inv["from"].bare
         room = str(room).split("/")[0]
         if not room or room in self.rooms():
+            return
+        if direct:
+            inviter = inv["from"].bare
+        else:
+            el = inv.xml.find("{http://jabber.org/protocol/muc#user}x/{http://jabber.org/protocol/muc#user}invite")
+            inviter = slixmpp.JID(el.get("from", "")).bare if el is not None else ""
+        if policy == "roster" and not self._trusted(inviter):
+            log.info("ignoring invite to %s from untrusted %s", room, inviter or "unknown")
             return
         log.info("invited to %s by %s, joining", room, inv["from"])
         try:
@@ -304,6 +350,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         sender = str(msg["from"]) if is_muc_pm else msg["from"].bare
         roster_name = self.client_roster[msg["from"].bare]["name"] if not is_muc_pm else ""
         body, reply = self._take_reply(msg, msg["body"])
+        body = self._clip(body, sender)
         msg["body"] = body
         segments = await self._media_segments(msg) or [Segment("text", {"text": body})]
         if reply:
@@ -338,26 +385,28 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         return None
 
     async def _fetch_aesgcm(self, url: str) -> str:
-        import aiohttp
         src, frag = media.aesgcm_split(url, self.media_cfg.aesgcm_insecure_http)
         limit = self.media_cfg.max_size_mb * 1024 * 1024
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as http:
-            async with http.get(src) as r:
-                r.raise_for_status()
-                if int(r.headers.get("Content-Length") or 0) > limit:
-                    raise ValueError("file too large")
-                payload = await r.content.read(limit + 17)
-                if len(payload) > limit + 16:
-                    raise ValueError("file too large")
+        payload = await media.download(src, limit + 16, self.media_cfg.allow_private_hosts)
         data = media.aesgcm_decrypt(payload, frag)
         d = Path(self.media_cfg.dir)
         d.mkdir(parents=True, exist_ok=True)
         path = d / f"{hashlib.sha256(data).hexdigest()[:24]}.{media.ext_of(src) or 'bin'}"
         path.write_bytes(data)
+        if self.media_cfg.max_dir_mb:
+            media.prune_dir(d, self.media_cfg.max_dir_mb * 1024 * 1024)
         return str(path)
 
+    def _clip(self, body: str, sender: str) -> str:
+        n = self.cfg.max_body_chars
+        if n and len(body) > n:
+            log.info("truncating %d-char message from %s", len(body), sender)
+            return body[:n]
+        return body
+
     def _on_groupchat(self, msg):
-        asyncio.ensure_future(self._handle_group(msg))
+        t = asyncio.ensure_future(self._handle_group(msg))
+        t.add_done_callback(_log_failure)
 
     async def _handle_group(self, msg, archived_ts: float | None = None, archive_id: str | None = None) -> int:
         if self.omemo and msg["mucnick"] != self.cfg.nick and self.plugin["xep_0384"].is_encrypted(msg):
@@ -371,6 +420,9 @@ class GatewayXMPP(slixmpp.ClientXMPP):
                     self._reflected.clear()
                 self._reflected[(msg["from"].bare, oid.get("id"))] = sid
                 self._reflected[(msg["from"].bare, "@" + sid)] = oid.get("id")
+        if archived_ts is None and msg["from"].bare not in self.rooms():
+            log.info("ignoring groupchat message from %s (not joined)", msg["from"].bare)
+            return 0   # 防止伪造「群」：只认已加入的房间
         retract = msg.xml.find(f"{{{NS_RETRACT}}}retract")
         if retract is not None and retract.get("id") and msg["mucnick"] and msg["mucnick"] != self.cfg.nick:
             room, nick = msg["from"].bare, msg["mucnick"]
@@ -388,6 +440,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         real = self.plugin["xep_0045"].get_jid_property(room, nick, "jid")
         sender = real.bare if real else str(msg["from"])  # 非匿名房间用真实 JID，跨房间 ID 一致
         body, reply = self._take_reply(msg, msg["body"])
+        body = self._clip(body, sender)
         segments: list[Segment] = [reply] if reply else []
         me = self.cfg.nick
         for sep in (":", ",", "，", "："):

@@ -94,7 +94,7 @@ async def main():
     bot, user = pick(accts, "BOT_JID", 0), pick(accts, "USER_JID", 1)
     print(f"bot={bot['jid']} user={user['jid']}", flush=True)
     os.makedirs("data", exist_ok=True)
-    cfg = {"xmpp": {**bot, "nick": NICK, "rooms": [], "accept_invites": True},
+    cfg = {"xmpp": {"rate_limit": 0, **bot, "nick": NICK, "rooms": [], "accept_invites": "all"},
            "storage": {"db": "data/e2e_public.db"},
            "onebot_v11": {"enabled": True, "reverse_ws": [ASTRBOT_WS]}}
     path = "data/e2e_public.toml"

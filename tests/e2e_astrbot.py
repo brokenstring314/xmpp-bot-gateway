@@ -41,7 +41,7 @@ class TestUser(slixmpp.ClientXMPP):
 async def main():
     acc = json.load(open("tests/prosody/run/accounts.json"))
     room = f"astrbot-{secrets.token_hex(4)}@conference.test.local"
-    cfg = {"xmpp": {**acc["bot"], "server": "127.0.0.1", "port": 15222, "tls": "none", "nick": "bot", "rooms": [room]},
+    cfg = {"xmpp": {"rate_limit": 0, **acc["bot"], "server": "127.0.0.1", "port": 15222, "tls": "none", "nick": "bot", "rooms": [room]},
            "storage": {"db": "tests/prosody/run/gateway.db"},
            "onebot_v11": {"enabled": True, "reverse_ws": [ASTRBOT_WS]}}
     path = "tests/prosody/run/e2e_astrbot.toml"

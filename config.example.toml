@@ -12,7 +12,11 @@ tls = "starttls"
 rooms = ["room@conference.example.org"]
 nick = "bot"
 # 收到群邀请（XEP-0045 / XEP-0249）时自动加入
-accept_invites = true
+# 群邀请：roster = 只接受花名册联系人和 admins 的邀请（默认）；all = 任何人；none = 不自动加入
+accept_invites = "roster"
+admins = []                  # trusted JIDs whose invites are always accepted
+rate_limit = 20              # max messages per sender per minute forwarded to the bot (0 = unlimited)
+max_body_chars = 10000       # longer incoming messages are truncated (0 = unlimited)
 # 上线/重连后用 MAM 补拉离线期间的消息（首次运行从当前时间开始）
 mam_catchup = true
 mam_max_messages = 50   # 每个会话档案最多补拉条数
@@ -28,6 +32,9 @@ store_dir = "data/omemo" # 身份密钥与会话（JSON，权限 600），请妥
 [media]
 dir = "data/media"            # decrypted incoming files (aesgcm://) are saved here
 max_size_mb = 20              # per-file limit for uploads and downloads
+max_dir_mb = 500              # oldest files in `dir` are deleted beyond this total (0 = unlimited)
+local_file_dirs = []          # if set, outgoing file:// paths must be inside one of these directories
+# allow_private_hosts = false # incoming media on private/loopback addresses is refused unless true (local tests only)
 
 [storage]
 db = "data/gateway.db"   # JID <-> int64 ID 映射、消息 ID 映射

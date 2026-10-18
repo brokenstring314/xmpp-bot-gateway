@@ -134,9 +134,9 @@ async def main():
         acc, conn = {"bot": pick("BOT_JID", 0), "user": pick("USER_JID", 1)}, {}
     bot_jid, user_jid = acc["bot"]["jid"], acc["user"]["jid"]
     print(f"mode={MODE} bot={bot_jid} user={user_jid}", flush=True)
-    cfg = {"xmpp": {**acc["bot"], **conn, "nick": "bot", "rooms": []},
+    cfg = {"xmpp": {"rate_limit": 0, **acc["bot"], **conn, "nick": "bot", "rooms": []},
            "omemo": {"enabled": True, "store_dir": f"{WORK}/omemo"},
-           "media": {"dir": f"{WORK}/media", "aesgcm_insecure_http": LOCAL},
+           "media": {"dir": f"{WORK}/media", "aesgcm_insecure_http": LOCAL, "allow_private_hosts": LOCAL},
            "storage": {"db": f"{WORK}/gateway.db"},
            "onebot_v11": {"enabled": True, "reverse_ws": [f"ws://127.0.0.1:{PORT}/ws"], "reconnect_max": 2}}
     path = f"{WORK}/gateway.toml"

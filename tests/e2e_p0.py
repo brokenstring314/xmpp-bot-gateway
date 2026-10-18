@@ -104,7 +104,7 @@ class TestUser(slixmpp.ClientXMPP):
 
 
 def write_cfg(path, acc, rooms):
-    cfg = {"xmpp": {**acc["bot"], "server": "127.0.0.1", "port": 15222, "tls": "none",
+    cfg = {"xmpp": {"rate_limit": 0, **acc["bot"], "server": "127.0.0.1", "port": 15222, "tls": "none",
                     "nick": "bot", "rooms": rooms},
            "storage": {"db": f"{RUN}/gateway_e2e.db"},
            "onebot_v11": {"enabled": True, "reverse_ws": [f"ws://127.0.0.1:{PORT}/ws"],

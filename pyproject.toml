@@ -14,7 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 omemo = ["slixmpp-omemo>=2.2", "oldmemo[xml]>=2.0", "twomemo[xml]>=2.0"]
-dev = ["pytest", "pytest-asyncio", "ruff"]
+dev = ["pytest", "pytest-asyncio", "ruff", "hypothesis", "tomli-w"]
 
 [project.scripts]
 xmpp-gateway = "xmpp_gateway.__main__:main"

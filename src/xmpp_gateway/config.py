@@ -1,6 +1,6 @@
 """配置模型（pydantic）。"""
 import tomllib
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class XmppCfg(BaseModel):
@@ -11,10 +11,23 @@ class XmppCfg(BaseModel):
     tls: str = "starttls"  # starttls | direct | none（none 仅限本地测试）
     rooms: list[str] = []
     nick: str = "bot"
-    accept_invites: bool = True  # 收到群邀请时自动加入
+    # 收到群邀请时：roster = 只接受花名册联系人和 admins 的邀请；all = 接受任何人；none = 不自动加入
+    accept_invites: str = "roster"
+    admins: list[str] = []       # 受信任的 JID（总是接受其群邀请）
+    rate_limit: int = 20         # 每个发送者每分钟最多推送的消息数，超出丢弃；0 不限
+    max_body_chars: int = 10000  # 入站正文超过该长度时截断；0 不限
     mam_catchup: bool = True     # 上线/重连后用 MAM（XEP-0313）补拉离线期间的单聊与群聊消息
     mam_max_messages: int = 50   # 每个会话档案最多补拉条数
     mam_max_age: int = 86400     # s；只补拉这段时间内的消息
+
+    @field_validator("accept_invites", mode="before")
+    @classmethod
+    def _invites(cls, v):
+        if isinstance(v, bool):   # 兼容旧配置 true/false
+            return "all" if v else "none"
+        if v not in ("roster", "all", "none"):
+            raise ValueError("accept_invites must be roster, all or none")
+        return v
 
 
 class OmemoCfg(BaseModel):
@@ -27,6 +40,9 @@ class MediaCfg(BaseModel):
     dir: str = "data/media"          # 解密后的入站媒体（aesgcm://）保存目录
     max_size_mb: int = 20            # 上传/下载单个文件上限
     aesgcm_insecure_http: bool = False  # 仅本地测试：aesgcm:// 链接用 http 下载
+    allow_private_hosts: bool = False   # 仅本地测试：允许下载内网/本机地址上的入站媒体（默认拒绝，防 SSRF）
+    max_dir_mb: int = 500               # 入站媒体目录总大小上限，超出时删除最旧的文件；0 不限
+    local_file_dirs: list[str] = []     # 出站 file:// / 本地路径只允许这些目录；空 = 不限制
 
 
 class StorageCfg(BaseModel):

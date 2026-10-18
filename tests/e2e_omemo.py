@@ -98,7 +98,7 @@ async def main():
         pick = lambda env, i: next(a for a in accts if a["jid"] == os.environ[env]) if os.environ.get(env) else accts[i]
         bot, user, conn = pick("BOT_JID", 0), pick("USER_JID", 1), {}
     print(f"mode={MODE} bot={bot['jid']} user={user['jid']}", flush=True)
-    cfg = {"xmpp": {**bot, **conn, "nick": "bot", "rooms": []},
+    cfg = {"xmpp": {"rate_limit": 0, **bot, **conn, "nick": "bot", "rooms": []},
            "omemo": {"enabled": True, "trust": "btbv", "store_dir": f"{WORK}/bot"},
            "storage": {"db": f"{WORK}/gateway.db"},
            "onebot_v11": {"enabled": True, "reverse_ws": [ASTRBOT_WS]}}

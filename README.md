@@ -22,7 +22,14 @@ XMPP clients ⇄ XMPP server ⇄ xmpp-bot-gateway ⇄ OneBot v11 (reverse WebSoc
 - Undelivered events are re-sent after the OneBot connection is re-established
 - Stable numeric IDs for users, groups and messages, persisted in SQLite
 - OMEMO for direct chats (optional, `[omemo]` extra): encrypted incoming messages are decrypted, and replies to a contact whose last message was encrypted are encrypted too, using legacy OMEMO (`eu.siacs.conversations.axolotl`); if encryption fails the send fails instead of falling back to plaintext. Trust: blind trust before verification (`btbv`) or `manual`. Group chat OMEMO is not supported yet; encrypted group messages are ignored
-- Room invitations (XEP-0045 mediated and XEP-0249 direct) are accepted automatically; disable with `xmpp.accept_invites = false`
+- Room invitations (XEP-0045 mediated and XEP-0249 direct) are accepted from roster contacts and `xmpp.admins` by default; set `xmpp.accept_invites` to `"all"` or `"none"` to change this
+
+### Hardening
+
+- Group messages are only accepted from rooms the bot has joined; archive results are only accepted from the bot's own archive or the room's.
+- Incoming encrypted files are downloaded only from public addresses (checked again at connect time), without following redirects, with a size cap; the media directory has a total size cap.
+- Per-sender rate limit and maximum message length for incoming messages.
+- Outgoing local files must be regular files and can be restricted to `media.local_file_dirs`.
 - Automatic XMPP reconnect; rooms are rejoined after reconnecting
 - Incoming XMPP error stanzas are logged with their condition and text
 
@@ -46,7 +53,8 @@ In your bot framework, add a OneBot v11 adapter that listens for a reverse WebSo
 
 ```bash
 tests/prosody/run.sh &           # local Prosody on 127.0.0.1:15222 with random test accounts
-python3 -m pytest -q tests/test_cq.py
+python3 -m pytest -q tests/test_cq.py tests/test_props.py   # unit and property-based tests
+python3 -u tests/e2e_redteam.py  # forged, malformed and abusive stanzas from a hostile client
 python3 -u tests/e2e_p0.py       # end-to-end against a mock OneBot v11 app
 python3 -u tests/e2e_media.py    # media upload/download, including OMEMO-encrypted files
 python3 -u tests/e2e_reply.py    # replies, delivery receipts, mentions, recall notices
