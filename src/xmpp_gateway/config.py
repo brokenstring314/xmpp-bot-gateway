@@ -12,6 +12,9 @@ class XmppCfg(BaseModel):
     rooms: list[str] = []
     nick: str = "bot"
     accept_invites: bool = True  # 收到群邀请时自动加入
+    mam_catchup: bool = True     # 上线/重连后用 MAM（XEP-0313）补拉离线期间的单聊与群聊消息
+    mam_max_messages: int = 50   # 每个会话档案最多补拉条数
+    mam_max_age: int = 86400     # s；只补拉这段时间内的消息
 
 
 class OmemoCfg(BaseModel):

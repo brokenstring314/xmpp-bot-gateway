@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS messages (
   segments TEXT NOT NULL,      -- JSON
   time INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS state (     -- 杂项持久状态（如 MAM 补拉检查点）
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS msg_alias ( -- 一条 OneBot 消息对应的其他 XMPP id（拆分发送的各段、群里的 stanza-id）
   chat TEXT NOT NULL,
   xmpp_id TEXT NOT NULL,
@@ -93,6 +97,17 @@ class IdMap:
                                    (chat, xmpp_id)) as cur:
             row = await cur.fetchone()
         return row[0] if row else None
+
+    async def get_state(self, key: str) -> str | None:
+        assert self.db
+        async with self.db.execute("SELECT value FROM state WHERE key=?", (key,)) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else None
+
+    async def set_state(self, key: str, value: str) -> None:
+        assert self.db
+        await self.db.execute("INSERT OR REPLACE INTO state VALUES (?,?)", (key, value))
+        await self.db.commit()
 
     async def add_alias(self, chat: str, xmpp_id: str, mid: int) -> None:
         assert self.db

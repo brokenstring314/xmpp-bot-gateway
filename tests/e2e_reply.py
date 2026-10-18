@@ -1,4 +1,5 @@
-"""Replies (XEP-0461 + XEP-0428 fallback) and delivery receipts (XEP-0184), end to end.
+"""Replies (XEP-0461 + XEP-0428 fallback), delivery receipts (XEP-0184), mentions (XEP-0372)
+and incoming retractions (XEP-0424 -> recall notices), end to end.
 
 Usage: start tests/prosody/run.sh, then run `python3 -u tests/e2e_reply.py`.
 """
@@ -16,6 +17,7 @@ PORT = 6297
 RUN = "tests/prosody/run"
 WORK = "data/e2e_reply"
 NS_REPLY, NS_FB, NS_RCPT = "urn:xmpp:reply:0", "urn:xmpp:fallback:0", "urn:xmpp:receipts"
+NS_REF, NS_RETRACT = "urn:xmpp:reference:0", "urn:xmpp:message-retract:1"
 results: dict[str, bool] = {}
 
 
@@ -37,6 +39,7 @@ async def until(pred, timeout=15.0):
 class MockApp:
     def __init__(self):
         self.ws, self.events, self.pending, self.n = None, [], {}, 0
+        self.notices: list = []
 
     async def handler(self, request):
         ws = web.WebSocketResponse()
@@ -50,6 +53,8 @@ class MockApp:
                     fut.set_result(d)
             elif d.get("post_type") == "message":
                 self.events.append(d)
+            elif d.get("post_type") == "notice":
+                self.notices.append(d)
         return ws
 
     async def call(self, action, **params):
@@ -199,6 +204,57 @@ async def main():
           segs and segs[0] == {"type": "reply", "data": {"id": str(gbot_mid)}}, segs)
     check("group: mention after the quote still becomes an at segment",
           len(segs) == 3 and segs[1]["type"] == "at" and segs[2] == {"type": "text", "data": {"text": "nice"}}, segs)
+
+    # ---- XEP-0372 mentions ----
+    k = len(app.events)
+    mm = u.make_message(mto=room, mbody="hey bot, look", mtype="groupchat")
+    ET.SubElement(mm.xml, f"{{{NS_REF}}}reference", {"type": "mention", "begin": "4", "end": "7", "uri": f"xmpp:{room}/bot"})
+    mm.send()
+    ev = await until(lambda: len(app.events) > k and app.events[-1])
+    check("group: XEP-0372 mention of the bot -> at segment",
+          ev and ev["message"][0]["type"] == "at" and ev["message"][-1]["data"].get("text") == "hey bot, look",
+          ev and ev["message"])
+    n = len(u.inbox)
+    await app.call("send_group_msg", group_id=gid,
+                   message=[{"type": "at", "data": {"qq": str(ev["user_id"])}}, {"type": "text", "data": {"text": "hi"}}])
+    m = await until(lambda: u.got(lambda x: x["type"] == "groupchat" and x["body"] == "tester: hi", n))
+    ref = m.xml.find(f"{{{NS_REF}}}reference") if m else None
+    check("group: outgoing at -> XEP-0372 reference",
+          ref is not None and (ref.get("begin"), ref.get("end"), ref.get("uri")) == ("0", "6", f"xmpp:{room}/tester"),
+          ref.attrib if ref is not None else m)
+
+    # ---- incoming retractions -> recall notices ----
+    k = len(app.events)
+    oops = u.make_message(mto=bot_jid, mbody="oops", mtype="chat")
+    oops["id"] = uuid.uuid4().hex
+    oops.send()
+    ev = await until(lambda: len(app.events) > k and app.events[-1])
+    j = len(app.notices)
+    rt = u.make_message(mto=bot_jid, mtype="chat", mbody="retracted")
+    ET.SubElement(rt.xml, f"{{{NS_RETRACT}}}retract", {"id": oops["id"]})
+    rt.send()
+    nt = await until(lambda: len(app.notices) > j and app.notices[-1])
+    check("private: retraction -> friend_recall notice",
+          nt and nt["notice_type"] == "friend_recall" and nt["message_id"] == ev["message_id"]
+          and nt["user_id"] == ev["user_id"], nt)
+    j = len(app.notices)
+    rt = u.make_message(mto=bot_jid, mtype="chat")
+    ET.SubElement(rt.xml, f"{{{NS_RETRACT}}}retract", {"id": bot_msg_id})
+    rt.send()
+    await asyncio.sleep(2)
+    check("private: retracting someone else's message is ignored", len(app.notices) == j, app.notices[j:])
+    k, n = len(app.events), len(u.inbox)
+    u.send_message(mto=room, mbody="group oops", mtype="groupchat")
+    ev = await until(lambda: len(app.events) > k and app.events[-1])
+    own = await until(lambda: u.got(lambda x: x["type"] == "groupchat" and x["body"] == "group oops", n))
+    j = len(app.notices)
+    rt = u.make_message(mto=room, mtype="groupchat", mbody="retracted")
+    ET.SubElement(rt.xml, f"{{{NS_RETRACT}}}retract", {"id": room_sid(own)})
+    rt.send()
+    nt = await until(lambda: len(app.notices) > j and app.notices[-1])
+    check("group: retraction -> group_recall notice",
+          nt and nt["notice_type"] == "group_recall" and nt["message_id"] == ev["message_id"]
+          and nt["group_id"] == ev["group_id"], nt)
 
     passed = sum(results.values())
     print(f"RESULT {passed}/{len(results)} passed", flush=True)

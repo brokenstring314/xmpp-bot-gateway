@@ -12,7 +12,7 @@ import time
 import aiohttp
 
 from ... import __version__
-from ...core.events import Scene
+from ...core.events import RecallEvent, Scene
 from ...xmpp import media
 from . import cq
 
@@ -54,6 +54,7 @@ class OneBotV11:
         if self.cfg.access_token:
             headers["Authorization"] = f"Bearer {self.cfg.access_token}"
         events = self.bus.subscribe()
+        carry: list = []
         delay = 1
         while True:
             try:
@@ -64,7 +65,7 @@ class OneBotV11:
                     send = self._sender(ws, lock)
                     await send(self._meta("lifecycle", sub_type="connect"))
                     tasks = [asyncio.create_task(c) for c in
-                             (self._pump(send, events), self._recv(ws, send), self._heartbeat(send))]
+                             (self._pump(send, events, carry), self._recv(ws, send), self._heartbeat(send))]
                     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                     for t in pending:
                         t.cancel()
@@ -102,18 +103,25 @@ class OneBotV11:
             await asyncio.sleep(interval / 1000)
             await send(self._meta("heartbeat", status=self._status(), interval=interval))
 
-    async def _pump(self, send, events: asyncio.Queue) -> None:
+    async def _pump(self, send, events: asyncio.Queue, carry: list) -> None:
+        """carry：上一条连接上没发出去的事件，换新连接后先补发，避免重连瞬间丢消息。"""
         while True:
-            ev = await events.get()
-            if self.cfg.event_max_age and time.time() - ev.time > self.cfg.event_max_age:
+            ev = carry.pop(0) if carry else await events.get()
+            if self.cfg.event_max_age and not ev.archived and time.time() - ev.time > self.cfg.event_max_age:
                 log.info("dropping stale event %s (%.0fs old)", ev.message_id, time.time() - ev.time)
                 continue
             try:
-                payload = await self._translate(ev)
+                payload = await (self._translate_recall(ev) if isinstance(ev, RecallEvent) else self._translate(ev))
+                if payload is None:
+                    continue
             except Exception:  # noqa: BLE001
                 log.exception("failed to translate event")
                 continue
-            await send(payload)
+            try:
+                await send(payload)
+            except BaseException:   # 含连接关闭时的取消
+                carry.insert(0, ev)
+                raise
 
     async def _recv(self, ws, send) -> None:
         async for m in ws:
@@ -139,6 +147,23 @@ class OneBotV11:
         await send(resp)
 
     # ---------- 事件翻译 ----------
+    async def _translate_recall(self, ev) -> dict | None:
+        """对方撤回 -> friend_recall / group_recall 通知。只认撤回者自己发的、本网关见过的消息。"""
+        group = ev.scene == Scene.GROUP
+        chat = ev.room_jid if group else ev.sender_jid
+        mid = await self.idmap.find_message(chat, ev.target_id)
+        rec = await self.idmap.get_message(mid) if mid else None
+        if not rec or rec["outgoing"] or rec["sender"] != ev.sender_jid:
+            log.info("ignoring retraction of unknown or foreign message %s in %s", ev.target_id, chat)
+            return None
+        uid = await self.idmap.to_int("user", ev.sender_jid)
+        base = {"time": int(ev.time or time.time()), "self_id": self.self_id, "post_type": "notice",
+                "user_id": uid, "message_id": mid}
+        if group:
+            return base | {"notice_type": "group_recall", "operator_id": uid,
+                           "group_id": await self.idmap.to_int("group", ev.room_jid)}
+        return base | {"notice_type": "friend_recall"}
+
     async def _translate(self, ev) -> dict:
         segs = []
         chat = ev.room_jid if ev.scene == Scene.GROUP else ev.sender_jid
@@ -192,9 +217,10 @@ class OneBotV11:
             raise ActionError(100, f"unknown {kind} id: {n}")
         return v
 
-    def _render(self, segments: list[dict], room: str | None, nicks: dict[int, str]) -> tuple[str, list[dict]]:
-        """消息段 -> (文字正文, 媒体段列表)。媒体每个单独发一条消息，客户端才会内联显示。"""
-        text, urls = [], []
+    def _render(self, segments: list[dict], room: str | None, nicks: dict[int, str]) -> tuple[str, list[dict], list]:
+        """消息段 -> (文字正文, 媒体段列表, 提及列表)。媒体每个单独发一条消息，客户端才会内联显示。
+        提及为 (begin, end, uri)，供 XEP-0372 引用。"""
+        text, urls, mentions = [], [], []
         for i, s in enumerate(segments):
             t, d = s.get("type"), s.get("data") or {}
             if t == "text":
@@ -205,6 +231,9 @@ class OneBotV11:
                 if nick is None and qq.isdigit():
                     nick = nicks.get(int(qq))
                 if nick:
+                    pos = sum(len(t) for t in text)
+                    if nick != "all":
+                        mentions.append((pos, pos + len(nick), f"xmpp:{room}/{nick}"))
                     text.append(f"{nick}: " if i == 0 else f"{nick} ")
             elif t in ("image", "record", "video", "file"):
                 urls.append(s)
@@ -212,7 +241,11 @@ class OneBotV11:
                 pass  # 由 _reply_ref 处理
             else:
                 log.debug("unsupported segment %s skipped", t)
-        return "".join(text).strip("\n"), urls
+        joined = "".join(text)
+        body = joined.strip("\n")
+        lead = len(joined) - len(joined.lstrip("\n"))
+        mentions = [(b - lead, e - lead, u) for b, e, u in mentions if e - lead <= len(body)]
+        return body, urls, mentions
 
     async def _media_url(self, seg: dict, encrypt: bool) -> str:
         """媒体段 -> 可发送的链接：http(s) 原样使用；base64:// / file:// / 本地路径经 HTTP Upload 上传。"""
@@ -250,7 +283,7 @@ class OneBotV11:
                     nick = self.xmpp.nick_for(room, user) if user else None
                     if nick:
                         nicks[int(qq)] = nick
-        body, media_segs = self._render(segments, room, nicks)
+        body, media_segs, mentions = self._render(segments, room, nicks)
         reply = await self._reply_ref(segments, target, group)
         if not body and not media_segs:
             raise ActionError(100, "empty message")
@@ -262,7 +295,10 @@ class OneBotV11:
         try:
             if body:
                 ref = (reply[0], reply[1], len(reply[2])) if reply else None
-                ids.append(await self.xmpp.send_rich(target, reply[2] + body if reply else body, group, reply=ref))
+                shift = len(reply[2]) if reply else 0
+                ids.append(await self.xmpp.send_rich(
+                    target, reply[2] + body if reply else body, group, reply=ref,
+                    mentions=[(b + shift, e + shift, u) for b, e, u in mentions]))
                 reply = None
             for url in links:
                 # 正文恰为链接（+ OOB）时 Conversations 等客户端会内联显示；
@@ -359,10 +395,10 @@ class OneBotV11:
         return ok({"app_name": "xmpp-bot-gateway", "app_version": __version__, "protocol_version": "v11"})
 
     async def a_can_send_image(self, p):
-        return ok({"yes": False})
+        return ok({"yes": True})
 
     async def a_can_send_record(self, p):
-        return ok({"yes": False})
+        return ok({"yes": True})
 
     async def a_get_friend_list(self, p):
         roster = self.xmpp.client_roster

@@ -27,3 +27,16 @@ class MessageEvent:
     time: float = 0.0
     sender_name: str = ""      # 单聊：花名册名称或 localpart；群聊：房间昵称
     sender_role: str = "none"  # 群聊：MUC affiliation（owner/admin/member/none/outcast）
+    archived: bool = False     # 来自 MAM 补拉的离线消息（time 为原始发送时间）
+
+
+@dataclass
+class RecallEvent:
+    """对方撤回了自己的一条消息（XEP-0424）。"""
+    scene: Scene
+    self_jid: str
+    sender_jid: str            # 撤回者，身份规则同 MessageEvent.sender_jid
+    room_jid: str | None
+    target_id: str             # 被撤回消息的 XMPP id（群聊为房间 stanza-id）
+    time: float = 0.0
+    archived: bool = False

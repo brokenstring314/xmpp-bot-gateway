@@ -6,19 +6,22 @@ import json
 import logging
 import time
 import uuid
+from collections import OrderedDict
+from datetime import datetime, timezone
 from pathlib import Path
 
 import slixmpp
 from slixmpp.xmlstream import ET
 
 from ..config import MediaCfg
-from ..core.events import MessageEvent, Scene, Segment
+from ..core.events import MessageEvent, RecallEvent, Scene, Segment
 from . import media
 
 log = logging.getLogger(__name__)
 
 NS_DELAY = "{urn:xmpp:delay}delay"
 NS_REPLY = "urn:xmpp:reply:0"
+NS_REF = "urn:xmpp:reference:0"
 NS_FALLBACK = "urn:xmpp:fallback:0"
 NS_RETRACT = "urn:xmpp:message-retract:1"
 NS_OOB = "jabber:x:oob"
@@ -34,6 +37,8 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             self.register_plugin(xep)
         # XEP-0184：对方请求回执时自动回执（客户端显示「已送达」）
         self.register_plugin("xep_0184", {"auto_ack": True, "auto_request": False})
+        self._seen: OrderedDict[str, None] = OrderedDict()   # 最近推送过的「会话|消息 id」，MAM 补拉去重
+        self._catchup_task: asyncio.Task | None = None
         self._reflected: dict[tuple[str, str], str] = {}  # (room, 自己消息的 origin-id) -> 房间分配的 stanza-id
         self.omemo = bool(omemo_cfg and omemo_cfg.enabled)
         self._omemo_peers: set[str] = set()   # 最近一条消息是 OMEMO 加密的单聊对象 → 回复也加密
@@ -107,6 +112,73 @@ class GatewayXMPP(slixmpp.ClientXMPP):
                 await self.join_room(room)
             except Exception as e:  # noqa: BLE001  单个房间失败不影响其他房间与单聊
                 log.error("failed to join room %s: %r", room, e)
+        if self.cfg.mam_catchup:
+            self._catchup_task = asyncio.create_task(self._catch_up())
+
+    # ---------- MAM 补拉（XEP-0313） ----------
+    async def _catch_up(self) -> None:
+        archives = [("private", None)] + [(r, r) for r in self.rooms()]
+        for key, room in archives:
+            try:
+                await self._catch_up_one(key, room)
+            except Exception as e:  # noqa: BLE001  服务器/房间不支持 MAM 等
+                log.warning("MAM catch-up for %s failed: %r", room or "private chats", e)
+
+    async def _catch_up_one(self, key: str, room: str | None) -> None:
+        ck = await self.idmap.get_state(f"mam:{key}")
+        now = time.time()
+        if ck is None:   # 首次运行：不回放旧消息，只从现在开始记
+            await self.idmap.set_state(f"mam:{key}", str(now))
+            await self.idmap.set_state(f"mam:{key}:floor", str(now))
+            return
+        floor = float(await self.idmap.get_state(f"mam:{key}:floor") or 0)
+        # 留 30s 重叠（靠去重消化），但不早于首次运行时间
+        since = max(float(ck) - 30, floor, now - self.cfg.mam_max_age)
+        start = datetime.fromtimestamp(since, tz=timezone.utc)
+        mam = self.plugin["xep_0313"]
+        n = 0
+        async for res in mam.iterate(jid=slixmpp.JID(room) if room else None, start=start,
+                                     total=self.cfg.mam_max_messages, rsm={"max": 25}):
+            fwd = res["mam_result"]["forwarded"]
+            inner = fwd["stanza"]
+            stamp = fwd["delay"]["stamp"]
+            ts = stamp.timestamp() if stamp else now
+            if room:
+                if inner["type"] != "groupchat":
+                    continue
+                n += await self._handle_group(inner, archived_ts=ts, archive_id=res["mam_result"]["id"])
+            else:
+                if inner["from"].bare == self.boundjid.bare or inner["type"] not in ("chat", "normal"):
+                    continue   # 自己发出的（含其他设备）
+                async with self._in_lock:
+                    n += await self._process_message(inner, archived_ts=ts)
+        if n:
+            log.info("MAM catch-up: %d missed message(s) from %s", n, room or "private chats")
+
+    def _fresh(self, chat: str, mid: str) -> bool:
+        k = f"{chat}|{mid}"
+        if k in self._seen:
+            return False
+        self._seen[k] = None
+        if len(self._seen) > 5000:
+            self._seen.popitem(last=False)
+        return True
+
+    async def _emit(self, ev: MessageEvent, key: str) -> int:
+        """去重后推送事件，并推进该档案的补拉检查点。返回是否推送（1/0）。"""
+        chat = ev.room_jid or ev.sender_jid
+        if isinstance(ev, RecallEvent):
+            self.bus.publish(ev)
+            return 1
+        if not self._fresh(chat, ev.message_id):
+            return 0
+        if ev.archived and await self.idmap.find_message(chat, ev.message_id) is not None:
+            return 0
+        self.bus.publish(ev)
+        ck = await self.idmap.get_state(f"mam:{key}")
+        if ck is None or ev.time > float(ck):
+            await self.idmap.set_state(f"mam:{key}", str(ev.time))
+        return 1
 
     async def join_room(self, room: str) -> None:
         muc = self.plugin["xep_0045"]
@@ -173,43 +245,58 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         self._peers_file.parent.mkdir(parents=True, exist_ok=True)
         self._peers_file.write_text(json.dumps(sorted(self._omemo_peers)))
 
+    @property
+    def _in_lock(self) -> asyncio.Lock:
+        if not hasattr(self, "_in_lock_obj"):
+            self._in_lock_obj = asyncio.Lock()
+        return self._in_lock_obj
+
     async def _on_message(self, msg):
         # 解密需要网络往返（下载 bundle 等），用锁保证单聊消息按到达顺序推送
-        if not hasattr(self, "_in_lock"):
-            self._in_lock = asyncio.Lock()
         async with self._in_lock:
             await self._process_message(msg)
 
-    async def _process_message(self, msg):
+    async def _process_message(self, msg, archived_ts: float | None = None) -> int:
         if msg["type"] == "error":
             log.warning("error from %s: %s %s", msg["from"], msg["error"]["condition"], msg["error"]["text"])
-            return
+            return 0
         if msg["type"] not in ("chat", "normal"):
-            return
+            return 0
+        retract = msg.xml.find(f"{{{NS_RETRACT}}}retract")
+        if retract is not None and retract.get("id") and msg["from"].user:
+            is_pm = msg["from"].bare in self.rooms() and msg["from"].resource
+            return await self._emit(RecallEvent(
+                scene=Scene.PRIVATE, self_jid=self.boundjid.bare,
+                sender_jid=str(msg["from"]) if is_pm else msg["from"].bare, room_jid=None,
+                target_id=retract.get("id"), time=archived_ts or time.time(),
+                archived=archived_ts is not None), "private")
+        if archived_ts is not None and msg["from"].user and \
+                await self.idmap.find_message(msg["from"].bare, self._msg_id(msg)) is not None:
+            return 0   # 已推送过（在线收到或离线存储已投递），也避免重复解密 OMEMO
         encrypted = False
         if self.omemo and msg["from"].user and self.plugin["xep_0384"].is_encrypted(msg):
             if msg["from"].bare in self.rooms():
                 log.info("ignoring OMEMO message via MUC %s (not supported)", msg["from"])
-                return
+                return 0
             try:
                 dec, dev = await self.plugin["xep_0384"].decrypt_message(msg)
             except Exception as e:  # noqa: BLE001
                 log.warning("OMEMO decrypt failed for message from %s: %r", msg["from"], e)
-                return
+                return 0
             log.debug("OMEMO message from %s device %s", dev.bare_jid, dev.device_id)
             if not dec["body"]:
-                return  # 加密的回执/标记等，没有正文
+                return 0  # 加密的回执/标记等，没有正文
             msg["body"] = dec["body"]
             encrypted = True
         if not msg["body"]:
-            return
+            return 0
         if msg.xml.find("{jabber:x:conference}x") is not None or \
                 msg.xml.find("{http://jabber.org/protocol/muc#user}x/{http://jabber.org/protocol/muc#user}invite") is not None:
-            return  # 群邀请由 _on_invite 处理
+            return 0  # 群邀请由 _on_invite 处理
         if not msg["from"].user:
-            return  # 服务器本身发来的通知（如欢迎消息），不是用户消息
-        if msg.xml.find(NS_DELAY) is not None and msg["type"] == "normal":
-            return
+            return 0  # 服务器本身发来的通知（如欢迎消息），不是用户消息
+        if archived_ts is None and msg.xml.find(NS_DELAY) is not None and msg["type"] == "normal":
+            return 0
         is_muc_pm = msg["from"].bare in self.rooms() and msg["from"].resource
         if self.omemo and not is_muc_pm:
             self._set_omemo_peer(msg["from"].bare, encrypted)
@@ -221,12 +308,12 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         segments = await self._media_segments(msg) or [Segment("text", {"text": body})]
         if reply:
             segments.insert(0, reply)
-        self.bus.publish(MessageEvent(
+        return await self._emit(MessageEvent(
             scene=Scene.PRIVATE, self_jid=self.boundjid.bare, sender_jid=sender,
             room_jid=None, message_id=self._msg_id(msg), encrypted=encrypted,
-            segments=segments, time=time.time(),
+            segments=segments, time=archived_ts or time.time(), archived=archived_ts is not None,
             sender_name=roster_name or (msg["from"].resource if is_muc_pm else msg["from"].user),
-        ))
+        ), "private")
 
     async def _media_segments(self, msg) -> list[Segment] | None:
         """正文仅为一个媒体链接时转成 image/record/video 段：
@@ -270,9 +357,12 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         return str(path)
 
     def _on_groupchat(self, msg):
+        asyncio.ensure_future(self._handle_group(msg))
+
+    async def _handle_group(self, msg, archived_ts: float | None = None, archive_id: str | None = None) -> int:
         if self.omemo and msg["mucnick"] != self.cfg.nick and self.plugin["xep_0384"].is_encrypted(msg):
             log.info("ignoring OMEMO group message in %s (group OMEMO not supported yet)", msg["from"].bare)
-            return
+            return 0
         if msg["mucnick"] == self.cfg.nick:
             oid = msg.xml.find("{urn:xmpp:sid:0}origin-id")
             sid = self._msg_id(msg)
@@ -281,10 +371,19 @@ class GatewayXMPP(slixmpp.ClientXMPP):
                     self._reflected.clear()
                 self._reflected[(msg["from"].bare, oid.get("id"))] = sid
                 self._reflected[(msg["from"].bare, "@" + sid)] = oid.get("id")
+        retract = msg.xml.find(f"{{{NS_RETRACT}}}retract")
+        if retract is not None and retract.get("id") and msg["mucnick"] and msg["mucnick"] != self.cfg.nick:
+            room, nick = msg["from"].bare, msg["mucnick"]
+            real = self.plugin["xep_0045"].get_jid_property(room, nick, "jid")
+            return await self._emit(RecallEvent(
+                scene=Scene.GROUP, self_jid=self.boundjid.bare,
+                sender_jid=real.bare if real else str(msg["from"]), room_jid=room,
+                target_id=retract.get("id"), time=archived_ts or time.time(),
+                archived=archived_ts is not None), room)
         if msg["mucnick"] == self.cfg.nick or not msg["body"] or not msg["mucnick"]:
-            return  # 忽略自己的回显和房间本身的通知
-        if msg.xml.find(NS_DELAY) is not None:
-            return  # 历史回放 / 离线补发的群消息，P0 先不推送
+            return 0  # 忽略自己的回显和房间本身的通知
+        if archived_ts is None and msg.xml.find(NS_DELAY) is not None:
+            return 0  # 加入时的历史回放：由 MAM 补拉统一处理
         room, nick = msg["from"].bare, msg["mucnick"]
         real = self.plugin["xep_0045"].get_jid_property(room, nick, "jid")
         sender = real.bare if real else str(msg["from"])  # 非匿名房间用真实 JID，跨房间 ID 一致
@@ -296,18 +395,24 @@ class GatewayXMPP(slixmpp.ClientXMPP):
                 segments.append(Segment("at", {"target": self.boundjid.bare}))
                 body = body[len(me) + 1:].lstrip()
                 break
+        else:
+            mine = {f"xmpp:{self.boundjid.bare}", f"xmpp:{room}/{me}"}
+            if any(r.get("type") == "mention" and r.get("uri") in mine
+                   for r in msg.xml.findall(f"{{{NS_REF}}}reference")):   # XEP-0372
+                segments.append(Segment("at", {"target": self.boundjid.bare}))
         oob = msg["oob"]["url"] if msg.xml.find("{jabber:x:oob}x") is not None else ""
         url = body.strip()
         if url and url == oob and url.startswith(("http://", "https://")) and media.kind_of(url):
             segments.append(Segment(media.kind_of(url), {"file": url, "url": url}))
         else:
             segments.append(Segment("text", {"text": body}))
-        self.bus.publish(MessageEvent(
+        return await self._emit(MessageEvent(
             scene=Scene.GROUP, self_jid=self.boundjid.bare, sender_jid=sender,
-            room_jid=room, message_id=self._msg_id(msg), segments=segments, time=time.time(),
+            room_jid=room, message_id=archive_id or self._msg_id(msg), segments=segments,
+            time=archived_ts or time.time(), archived=archived_ts is not None,
             sender_name=nick,
             sender_role=self.plugin["xep_0045"].get_jid_property(room, nick, "affiliation") or "none",
-        ))
+        ), f"{room}")
 
     # ---------- 出站 ----------
     def rooms(self) -> list[str]:
@@ -334,7 +439,8 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             ET.SubElement(fb, f"{{{NS_FALLBACK}}}body", {"start": "0", "end": str(fb_len)})
 
     async def send_rich(self, to: str, text: str, group: bool, urls: list[str] | None = None,
-                        reply: tuple[str, str, str] | None = None) -> str:
+                        reply: tuple[str, str, str] | None = None,
+                        mentions: list[tuple[int, int, str]] | None = None) -> str:
         """reply = (被回复者 JID, 被回复消息 id, 正文开头回退引用的长度)。"""
         """发送文本（可附带 OOB 链接），返回出站消息 id（同时作为 origin-id）。
         对方最近用 OMEMO 发来消息时加密回复；加密失败直接报错，不降级为明文。"""
@@ -366,6 +472,9 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         if urls:
             msg["oob"]["url"] = urls[0]   # XEP-0066：客户端可内联显示
         self._add_reply(msg, reply)
+        for begin, end, uri in mentions or []:   # XEP-0372：偏移按 Unicode 码位
+            ET.SubElement(msg.xml, f"{{{NS_REF}}}reference",
+                          {"type": "mention", "begin": str(begin), "end": str(end), "uri": uri})
         msg.send()
         return mid
 

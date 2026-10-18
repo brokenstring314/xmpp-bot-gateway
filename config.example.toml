@@ -13,6 +13,10 @@ rooms = ["room@conference.example.org"]
 nick = "bot"
 # 收到群邀请（XEP-0045 / XEP-0249）时自动加入
 accept_invites = true
+# 上线/重连后用 MAM 补拉离线期间的消息（首次运行从当前时间开始）
+mam_catchup = true
+mam_max_messages = 50   # 每个会话档案最多补拉条数
+mam_max_age = 86400     # 秒；只补拉这段时间内的消息
 
 [omemo]
 # 单聊 OMEMO 加密；需安装可选依赖：pip install -e ".[omemo]"
