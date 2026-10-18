@@ -13,6 +13,7 @@ import aiohttp
 
 from ... import __version__
 from ...core.events import Scene
+from ...xmpp import media
 from . import cq
 
 log = logging.getLogger(__name__)
@@ -143,6 +144,8 @@ class OneBotV11:
         for s in ev.segments:
             if s.type == "text":
                 segs.append({"type": "text", "data": {"text": s.data.get("text", "")}})
+            elif s.type in ("image", "record", "video"):
+                segs.append({"type": s.type, "data": dict(s.data)})
             elif s.type == "at":
                 segs.append({"type": "at", "data": {"qq": str(await self.idmap.to_int("user", s.data["target"]))}})
         uid = await self.idmap.to_int("user", ev.sender_jid)
@@ -178,8 +181,8 @@ class OneBotV11:
             raise ActionError(100, f"unknown {kind} id: {n}")
         return v
 
-    def _render(self, segments: list[dict], room: str | None, nicks: dict[int, str]) -> tuple[str, list[str]]:
-        """消息段 -> (XMPP 正文, OOB 链接)。P0 只支持 http(s) 链接形式的媒体。"""
+    def _render(self, segments: list[dict], room: str | None, nicks: dict[int, str]) -> tuple[str, list[dict]]:
+        """消息段 -> (文字正文, 媒体段列表)。媒体每个单独发一条消息，客户端才会内联显示。"""
         text, urls = [], []
         for i, s in enumerate(segments):
             t, d = s.get("type"), s.get("data") or {}
@@ -193,20 +196,32 @@ class OneBotV11:
                 if nick:
                     text.append(f"{nick}: " if i == 0 else f"{nick} ")
             elif t in ("image", "record", "video", "file"):
-                url = str(d.get("url") or d.get("file") or "")
-                if url.startswith(("http://", "https://")):
-                    urls.append(url)
-                else:
-                    log.warning("%s segment without http(s) url not supported yet; skipped", t)
+                urls.append(s)
             elif t == "reply":
                 pass  # P2：XEP-0461
             else:
                 log.debug("unsupported segment %s skipped", t)
-        body = "".join(text).strip("\n")
-        if urls:
-            # 正文恰为 URL 时 Conversations 等客户端会内联显示图片
-            body = "\n".join(filter(None, [body, *urls]))
-        return body, urls
+        return "".join(text).strip("\n"), urls
+
+    async def _media_url(self, seg: dict, encrypt: bool) -> str:
+        """媒体段 -> 可发送的链接：http(s) 原样使用；base64:// / file:// / 本地路径经 HTTP Upload 上传。"""
+        d = seg.get("data") or {}
+        src = str(d.get("file") or d.get("url") or "")
+        if not src.startswith(("http://", "https://")) and str(d.get("url", "")).startswith(("http://", "https://")):
+            src = str(d["url"])
+        if src.startswith(("http://", "https://")):
+            return src
+        if not src:
+            raise ActionError(100, f"{seg.get('type')} segment has no file")
+        limit = self.xmpp.media_cfg.max_size_mb * 1024 * 1024
+        try:
+            data, name, mime = media.load_source(src, d.get("name"), limit)
+        except (OSError, ValueError) as e:
+            raise ActionError(100, f"cannot read {seg.get('type')}: {e}") from e
+        try:
+            return await self.xmpp.upload(data, name, mime, encrypt)
+        except Exception as e:  # noqa: BLE001
+            raise ActionError(100, f"upload failed: {e!r}") from e
 
     async def _send(self, group: bool, target_num, message, auto_escape=False) -> dict:
         kind = "group" if group else "user"
@@ -224,15 +239,24 @@ class OneBotV11:
                     nick = self.xmpp.nick_for(room, user) if user else None
                     if nick:
                         nicks[int(qq)] = nick
-        body, urls = self._render(segments, room, nicks)
-        if not body:
+        body, media_segs = self._render(segments, room, nicks)
+        if not body and not media_segs:
             raise ActionError(100, "empty message")
         if not self.xmpp.online:
             raise ActionError(100, "XMPP not connected")
+        encrypt = self.xmpp.is_encrypted_peer(target, group)
+        links = [await self._media_url(s, encrypt) for s in media_segs]  # 先全部上传，失败则整条不发
+        ids = []
         try:
-            xid = await self.xmpp.send_rich(target, body, group, urls)
+            if body:
+                ids.append(await self.xmpp.send_rich(target, body, group))
+            for url in links:
+                # 正文恰为链接（+ OOB）时 Conversations 等客户端会内联显示
+                oob = [url] if url.startswith(("http://", "https://")) else None
+                ids.append(await self.xmpp.send_rich(target, url, group, oob))
         except Exception as e:  # noqa: BLE001  如 OMEMO 加密失败
             raise ActionError(100, f"send failed: {e}") from e
+        xid = ",".join(ids)
         mid = await self.idmap.save_message(
             scene="group" if group else "private", chat=target, sender=self.xmpp.boundjid.bare,
             sender_name=self.xmpp.cfg.nick, xmpp_id=xid, outgoing=True, segments=segments)

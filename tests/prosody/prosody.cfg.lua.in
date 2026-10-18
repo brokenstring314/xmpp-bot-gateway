@@ -14,6 +14,15 @@ modules_enabled = { "roster", "saslauth", "disco", "carbons", "pep", "private", 
   "vcard_legacy", "version", "uptime", "time", "ping", "register", "mam", "smacks", "posix" }
 modules_disabled = { "s2s", "tls" }
 allow_registration = false
+-- XEP-0363 HTTP Upload (plain HTTP on 127.0.0.1, test only)
+http_ports = { 15280 }
+http_interfaces = { "127.0.0.1" }
+https_ports = {}
+http_external_url = "http://127.0.0.1:15280/"
 VirtualHost "test.local"
+  disco_items = { { "upload.test.local" } }
 Component "conference.test.local" "muc"
   modules_enabled = { "muc_mam" }
+Component "upload.test.local" "http_file_share"
+  http_file_share_size_limit = 10 * 1024 * 1024
+  http_host = "127.0.0.1"

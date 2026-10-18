@@ -1,5 +1,7 @@
 """XMPP 客户端（slixmpp）：单聊 + MUC；可选 OMEMO 单聊加密。"""
 import asyncio
+import hashlib
+import io
 import json
 import logging
 import time
@@ -9,7 +11,9 @@ from pathlib import Path
 import slixmpp
 from slixmpp.xmlstream import ET
 
+from ..config import MediaCfg
 from ..core.events import MessageEvent, Scene, Segment
+from . import media
 
 log = logging.getLogger(__name__)
 
@@ -20,9 +24,10 @@ NS_OOB = "jabber:x:oob"
 
 
 class GatewayXMPP(slixmpp.ClientXMPP):
-    def __init__(self, cfg, bus, idmap, omemo_cfg=None) -> None:
+    def __init__(self, cfg, bus, idmap, omemo_cfg=None, media_cfg=None) -> None:
         super().__init__(cfg.jid, cfg.password)
         self.cfg, self.bus, self.idmap = cfg, bus, idmap
+        self.media_cfg = media_cfg or MediaCfg()
         for xep in ("xep_0030", "xep_0004", "xep_0045", "xep_0066", "xep_0199", "xep_0280",
                     "xep_0249", "xep_0313", "xep_0359", "xep_0363"):
             self.register_plugin(xep)
@@ -185,12 +190,54 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         # MUC 私信保留完整 room/nick 作为用户身份；普通单聊用 bare JID
         sender = str(msg["from"]) if is_muc_pm else msg["from"].bare
         roster_name = self.client_roster[msg["from"].bare]["name"] if not is_muc_pm else ""
+        segments = await self._media_segments(msg) or [Segment("text", {"text": msg["body"]})]
         self.bus.publish(MessageEvent(
             scene=Scene.PRIVATE, self_jid=self.boundjid.bare, sender_jid=sender,
-            room_jid=None, message_id=self._msg_id(msg),
-            segments=[Segment("text", {"text": msg["body"]})], time=time.time(),
+            room_jid=None, message_id=self._msg_id(msg), encrypted=encrypted,
+            segments=segments, time=time.time(),
             sender_name=roster_name or (msg["from"].resource if is_muc_pm else msg["from"].user),
         ))
+
+    async def _media_segments(self, msg) -> list[Segment] | None:
+        """正文仅为一个媒体链接时转成 image/record/video 段：
+        - http(s) 链接且与 OOB 一致（Conversations 等客户端的 HTTP Upload 分享方式）
+        - aesgcm://（OMEMO 会话中的加密文件，XEP-0454）：下载解密后存到本地，给出 file:// 路径"""
+        url = msg["body"].strip()
+        if not url or any(c.isspace() for c in url):
+            return None
+        if url.startswith("aesgcm://"):
+            if media.kind_of(url) is None:
+                return None
+            try:
+                path = await self._fetch_aesgcm(url)
+            except Exception as e:  # noqa: BLE001
+                log.warning("failed to fetch aesgcm media from %s: %r", msg["from"], e)
+                return None
+            uri = Path(path).resolve().as_uri()
+            return [Segment(media.kind_of(url), {"file": uri, "url": uri})]
+        oob = msg["oob"]["url"] if msg.xml.find("{jabber:x:oob}x") is not None else ""
+        if url.startswith(("http://", "https://")) and oob == url and media.kind_of(url):
+            return [Segment(media.kind_of(url), {"file": url, "url": url})]
+        return None
+
+    async def _fetch_aesgcm(self, url: str) -> str:
+        import aiohttp
+        src, frag = media.aesgcm_split(url, self.media_cfg.aesgcm_insecure_http)
+        limit = self.media_cfg.max_size_mb * 1024 * 1024
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as http:
+            async with http.get(src) as r:
+                r.raise_for_status()
+                if int(r.headers.get("Content-Length") or 0) > limit:
+                    raise ValueError("file too large")
+                payload = await r.content.read(limit + 17)
+                if len(payload) > limit + 16:
+                    raise ValueError("file too large")
+        data = media.aesgcm_decrypt(payload, frag)
+        d = Path(self.media_cfg.dir)
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f"{hashlib.sha256(data).hexdigest()[:24]}.{media.ext_of(src) or 'bin'}"
+        path.write_bytes(data)
+        return str(path)
 
     def _on_groupchat(self, msg):
         if self.omemo and msg["mucnick"] != self.cfg.nick and self.plugin["xep_0384"].is_encrypted(msg):
@@ -211,7 +258,12 @@ class GatewayXMPP(slixmpp.ClientXMPP):
                 segments.append(Segment("at", {"target": self.boundjid.bare}))
                 body = body[len(me) + 1:].lstrip()
                 break
-        segments.append(Segment("text", {"text": body}))
+        oob = msg["oob"]["url"] if msg.xml.find("{jabber:x:oob}x") is not None else ""
+        url = body.strip()
+        if url and url == oob and url.startswith(("http://", "https://")) and media.kind_of(url):
+            segments.append(Segment(media.kind_of(url), {"file": url, "url": url}))
+        else:
+            segments.append(Segment("text", {"text": body}))
         self.bus.publish(MessageEvent(
             scene=Scene.GROUP, self_jid=self.boundjid.bare, sender_jid=sender,
             room_jid=room, message_id=self._msg_id(msg), segments=segments, time=time.time(),
@@ -258,8 +310,23 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         msg.send()
         return mid
 
+    async def upload(self, data: bytes, filename: str, content_type: str, encrypt: bool) -> str:
+        """XEP-0363 上传；encrypt=True 时先按 XEP-0454 加密，返回 aesgcm:// 链接。"""
+        up = self.plugin["xep_0363"]
+        if encrypt:
+            payload, frag = media.aesgcm_encrypt(data)
+            url = await up.upload_file(filename, size=len(payload), content_type="application/octet-stream",
+                                       input_file=io.BytesIO(payload), timeout=60)
+            return media.aesgcm_url(url, frag)
+        return await up.upload_file(filename, size=len(data), content_type=content_type,
+                                    input_file=io.BytesIO(data), timeout=60)
+
     def send_retract(self, to: str, origin_id: str, group: bool) -> None:
-        """XEP-0424 撤回自己发出的消息。"""
+        """XEP-0424 撤回自己发出的消息（origin_id 可为逗号分隔的多条）。"""
+        if "," in origin_id:
+            for oid in origin_id.split(","):
+                self.send_retract(to, oid, group)
+            return
         msg = self.make_message(mto=to, mtype="groupchat" if group else "chat",
                                 mbody="This person attempted to retract a previous message, "
                                       "but it's unsupported by your client.")

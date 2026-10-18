@@ -20,6 +20,12 @@ class OmemoCfg(BaseModel):
     store_dir: str = "data/omemo"
 
 
+class MediaCfg(BaseModel):
+    dir: str = "data/media"          # 解密后的入站媒体（aesgcm://）保存目录
+    max_size_mb: int = 20            # 上传/下载单个文件上限
+    aesgcm_insecure_http: bool = False  # 仅本地测试：aesgcm:// 链接用 http 下载
+
+
 class StorageCfg(BaseModel):
     db: str = "data/gateway.db"
 
@@ -44,6 +50,7 @@ class SatoriCfg(BaseModel):
 class Config(BaseModel):
     xmpp: XmppCfg
     omemo: OmemoCfg = OmemoCfg()
+    media: MediaCfg = MediaCfg()
     storage: StorageCfg = StorageCfg()
     onebot_v11: OneBotV11Cfg = OneBotV11Cfg()
     satori: SatoriCfg = SatoriCfg()
