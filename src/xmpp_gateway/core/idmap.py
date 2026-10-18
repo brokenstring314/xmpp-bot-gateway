@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS messages (
   segments TEXT NOT NULL,      -- JSON
   time INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS msg_alias ( -- 一条 OneBot 消息对应的其他 XMPP id（拆分发送的各段、群里的 stanza-id）
+  chat TEXT NOT NULL,
+  xmpp_id TEXT NOT NULL,
+  message_id INTEGER NOT NULL,
+  PRIMARY KEY(chat, xmpp_id)
+);
 """
 BASE = 10_000_000  # 避开小数字，便于肉眼区分
 
@@ -69,8 +75,29 @@ class IdMap:
             "INSERT OR REPLACE INTO messages VALUES (?,?,?,?,?,?,?,?,?)",
             (mid - BASE, scene, chat, sender, sender_name, xmpp_id, int(outgoing),
              json.dumps(segments, ensure_ascii=False), int(ts or time.time())))
+        if "," in xmpp_id:
+            for part in xmpp_id.split(","):
+                await self.db.execute("INSERT OR REPLACE INTO msg_alias VALUES (?,?,?)", (chat, part, mid))
         await self.db.commit()
         return mid
+
+    async def find_message(self, chat: str, xmpp_id: str) -> int | None:
+        """按会话 + XMPP id（含别名）查 OneBot message_id，不存在返回 None。"""
+        assert self.db
+        async with self.db.execute("SELECT m.id FROM ids i JOIN messages m ON m.id = i.id "
+                                   "WHERE i.kind='message' AND i.value=?", (f"{chat}|{xmpp_id}",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            return BASE + row[0]
+        async with self.db.execute("SELECT message_id FROM msg_alias WHERE chat=? AND xmpp_id=?",
+                                   (chat, xmpp_id)) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else None
+
+    async def add_alias(self, chat: str, xmpp_id: str, mid: int) -> None:
+        assert self.db
+        await self.db.execute("INSERT OR REPLACE INTO msg_alias VALUES (?,?,?)", (chat, xmpp_id, mid))
+        await self.db.commit()
 
     async def get_message(self, mid: int) -> dict | None:
         assert self.db

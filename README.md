@@ -15,6 +15,8 @@ XMPP clients ⇄ XMPP server ⇄ xmpp-bot-gateway ⇄ OneBot v11 (reverse WebSoc
 - Mentions: a group message starting with `<bot nick>:` arrives as an `at` segment; outgoing `at` segments become `<nick>: `
 - Outgoing media: `image` / `record` / `video` / `file` segments accept an http(s) URL, `base64://` data or a `file://` / local path. Non-URL data is uploaded with XEP-0363 HTTP Upload. Each media item is sent as its own message whose body is the link, with XEP-0066 OOB, so clients show it inline. In an OMEMO chat the file is encrypted before upload (XEP-0454) and sent as an encrypted `aesgcm://` link; no plaintext OOB is attached
 - Incoming media: a message whose body is a single http(s) link matching its OOB URL, or an `aesgcm://` link in an OMEMO chat, becomes an `image` / `record` / `video` segment (chosen by file extension). Encrypted files are downloaded, decrypted and saved under `media.dir`, and passed on as a `file://` URI, so the bot framework must be able to read that path
+- Replies (XEP-0461): an outgoing `reply` segment references the original message (in group chats by the room's stanza-id) and adds a quoted fallback line (XEP-0428) for clients without reply support; an incoming reply becomes a `reply` segment with the original `message_id` and the quoted fallback is removed from the text. If the original message is unknown, the quote is kept as text
+- Delivery receipts (XEP-0184): receipt requests on incoming messages are answered automatically
 - Retraction: `delete_msg` retracts messages sent by the gateway (XEP-0424), including every part of a message that was split into text and media
 - Stable numeric IDs for users, groups and messages, persisted in SQLite
 - OMEMO for direct chats (optional, `[omemo]` extra): encrypted incoming messages are decrypted, and replies to a contact whose last message was encrypted are encrypted too, using legacy OMEMO (`eu.siacs.conversations.axolotl`); if encryption fails the send fails instead of falling back to plaintext. Trust: blind trust before verification (`btbv`) or `manual`. Group chat OMEMO is not supported yet; encrypted group messages are ignored
@@ -45,6 +47,7 @@ tests/prosody/run.sh &           # local Prosody on 127.0.0.1:15222 with random 
 python3 -m pytest -q tests/test_cq.py
 python3 -u tests/e2e_p0.py       # end-to-end against a mock OneBot v11 app
 python3 -u tests/e2e_media.py    # media upload/download, including OMEMO-encrypted files
+python3 -u tests/e2e_reply.py    # replies and delivery receipts
 ```
 
 `tests/e2e_astrbot.py` runs the same round trip against a running AstrBot instance with a OneBot v11 adapter on `127.0.0.1:6199`.

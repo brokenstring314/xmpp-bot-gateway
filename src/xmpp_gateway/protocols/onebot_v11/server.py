@@ -141,8 +141,19 @@ class OneBotV11:
     # ---------- 事件翻译 ----------
     async def _translate(self, ev) -> dict:
         segs = []
+        chat = ev.room_jid if ev.scene == Scene.GROUP else ev.sender_jid
         for s in ev.segments:
-            if s.type == "text":
+            if s.type == "reply":
+                xid = s.data["xmpp_id"]
+                rid = await self.idmap.find_message(chat, xid)
+                if rid is None and ev.scene == Scene.GROUP:   # 回复的是本 bot 在群里发的消息
+                    oid = self.xmpp.origin_of_reflection(chat, xid)
+                    rid = await self.idmap.find_message(chat, oid) if oid else None
+                if rid is not None:
+                    segs.append({"type": "reply", "data": {"id": str(rid)}})
+                elif s.data.get("fallback"):
+                    segs.append({"type": "text", "data": {"text": s.data["fallback"]}})
+            elif s.type == "text":
                 segs.append({"type": "text", "data": {"text": s.data.get("text", "")}})
             elif s.type in ("image", "record", "video"):
                 segs.append({"type": s.type, "data": dict(s.data)})
@@ -198,7 +209,7 @@ class OneBotV11:
             elif t in ("image", "record", "video", "file"):
                 urls.append(s)
             elif t == "reply":
-                pass  # P2：XEP-0461
+                pass  # 由 _reply_ref 处理
             else:
                 log.debug("unsupported segment %s skipped", t)
         return "".join(text).strip("\n"), urls
@@ -240,6 +251,7 @@ class OneBotV11:
                     if nick:
                         nicks[int(qq)] = nick
         body, media_segs = self._render(segments, room, nicks)
+        reply = await self._reply_ref(segments, target, group)
         if not body and not media_segs:
             raise ActionError(100, "empty message")
         if not self.xmpp.online:
@@ -249,11 +261,16 @@ class OneBotV11:
         ids = []
         try:
             if body:
-                ids.append(await self.xmpp.send_rich(target, body, group))
+                ref = (reply[0], reply[1], len(reply[2])) if reply else None
+                ids.append(await self.xmpp.send_rich(target, reply[2] + body if reply else body, group, reply=ref))
+                reply = None
             for url in links:
-                # 正文恰为链接（+ OOB）时 Conversations 等客户端会内联显示
+                # 正文恰为链接（+ OOB）时 Conversations 等客户端会内联显示；
+                # 媒体消息不加引用回退文本，否则正文不再是纯链接
                 oob = [url] if url.startswith(("http://", "https://")) else None
-                ids.append(await self.xmpp.send_rich(target, url, group, oob))
+                ref = (reply[0], reply[1], 0) if reply else None
+                ids.append(await self.xmpp.send_rich(target, url, group, oob, reply=ref))
+                reply = None
         except Exception as e:  # noqa: BLE001  如 OMEMO 加密失败
             raise ActionError(100, f"send failed: {e}") from e
         xid = ",".join(ids)
@@ -261,6 +278,34 @@ class OneBotV11:
             scene="group" if group else "private", chat=target, sender=self.xmpp.boundjid.bare,
             sender_name=self.xmpp.cfg.nick, xmpp_id=xid, outgoing=True, segments=segments)
         return ok({"message_id": mid})
+
+    async def _reply_ref(self, segments: list[dict], target: str, group: bool) -> tuple[str, str, str] | None:
+        """reply 段 -> (被回复者 JID, 被回复消息的 XMPP id, 引用回退文本)。找不到原消息时忽略。"""
+        seg = next((s for s in segments if s.get("type") == "reply"), None)
+        if not seg:
+            return None
+        try:
+            rec = await self.idmap.get_message(int((seg.get("data") or {}).get("id")))
+        except (TypeError, ValueError):
+            rec = None
+        if not rec or rec["chat"] != target:
+            log.warning("reply target %s not found in this chat; sending without reply", seg.get("data"))
+            return None
+        xid = rec["xmpp_id"].split(",")[0]
+        if group:
+            nick = self.xmpp.cfg.nick if rec["outgoing"] else rec["sender_name"]
+            to = f"{target}/{nick}"
+            if rec["outgoing"]:
+                xid = self.xmpp.room_id_of_own(target, xid)
+        else:
+            to = self.xmpp.boundjid.bare if rec["outgoing"] else rec["sender"]
+        quoted = "".join(s["data"].get("text", "") for s in rec["segments"] if s.get("type") == "text")
+        quoted = quoted.strip() or "[media]"
+        if len(quoted) > 80:
+            quoted = quoted[:80] + "…"
+        name = rec["sender_name"] or rec["sender"].split("@")[0]
+        fallback = "> " + f"{name}: " + "\n> ".join(quoted.splitlines()) + "\n"
+        return to, xid, fallback
 
     async def call(self, action: str, p: dict) -> dict:
         fn = getattr(self, f"a_{action}", None)

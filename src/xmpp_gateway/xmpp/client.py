@@ -18,8 +18,9 @@ from . import media
 log = logging.getLogger(__name__)
 
 NS_DELAY = "{urn:xmpp:delay}delay"
-NS_RETRACT = "urn:xmpp:message-retract:1"
+NS_REPLY = "urn:xmpp:reply:0"
 NS_FALLBACK = "urn:xmpp:fallback:0"
+NS_RETRACT = "urn:xmpp:message-retract:1"
 NS_OOB = "jabber:x:oob"
 
 
@@ -31,6 +32,9 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         for xep in ("xep_0030", "xep_0004", "xep_0045", "xep_0066", "xep_0199", "xep_0280",
                     "xep_0249", "xep_0313", "xep_0359", "xep_0363"):
             self.register_plugin(xep)
+        # XEP-0184：对方请求回执时自动回执（客户端显示「已送达」）
+        self.register_plugin("xep_0184", {"auto_ack": True, "auto_request": False})
+        self._reflected: dict[tuple[str, str], str] = {}  # (room, 自己消息的 origin-id) -> 房间分配的 stanza-id
         self.omemo = bool(omemo_cfg and omemo_cfg.enabled)
         self._omemo_peers: set[str] = set()   # 最近一条消息是 OMEMO 加密的单聊对象 → 回复也加密
         if self.omemo:
@@ -127,6 +131,28 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             return oid.get("id")
         return msg["id"] or uuid.uuid4().hex
 
+    @staticmethod
+    def _take_reply(msg, body: str) -> tuple[str, Segment | None]:
+        """XEP-0461：取出被回复消息的 id，并按 XEP-0428 去掉正文里的引用回退文本。"""
+        r = msg.xml.find(f"{{{NS_REPLY}}}reply")
+        if r is None or not r.get("id"):
+            return body, None
+        quote = ""
+        for fb in msg.xml.findall(f"{{{NS_FALLBACK}}}fallback"):
+            if fb.get("for") != NS_REPLY:
+                continue
+            b = fb.find(f"{{{NS_FALLBACK}}}body")
+            if b is None:
+                break
+            try:
+                start, end = int(b.get("start", 0)), int(b.get("end", 0))
+            except ValueError:
+                break
+            if 0 <= start < end <= len(body):
+                quote, body = body[start:end], body[:start] + body[end:]
+            break
+        return body, Segment("reply", {"xmpp_id": r.get("id"), "fallback": quote})
+
     async def _on_invite(self, inv) -> None:
         if not self.cfg.accept_invites:
             return
@@ -190,7 +216,11 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         # MUC 私信保留完整 room/nick 作为用户身份；普通单聊用 bare JID
         sender = str(msg["from"]) if is_muc_pm else msg["from"].bare
         roster_name = self.client_roster[msg["from"].bare]["name"] if not is_muc_pm else ""
-        segments = await self._media_segments(msg) or [Segment("text", {"text": msg["body"]})]
+        body, reply = self._take_reply(msg, msg["body"])
+        msg["body"] = body
+        segments = await self._media_segments(msg) or [Segment("text", {"text": body})]
+        if reply:
+            segments.insert(0, reply)
         self.bus.publish(MessageEvent(
             scene=Scene.PRIVATE, self_jid=self.boundjid.bare, sender_jid=sender,
             room_jid=None, message_id=self._msg_id(msg), encrypted=encrypted,
@@ -243,6 +273,14 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         if self.omemo and msg["mucnick"] != self.cfg.nick and self.plugin["xep_0384"].is_encrypted(msg):
             log.info("ignoring OMEMO group message in %s (group OMEMO not supported yet)", msg["from"].bare)
             return
+        if msg["mucnick"] == self.cfg.nick:
+            oid = msg.xml.find("{urn:xmpp:sid:0}origin-id")
+            sid = self._msg_id(msg)
+            if oid is not None and oid.get("id") and sid != oid.get("id"):
+                if len(self._reflected) > 2000:
+                    self._reflected.clear()
+                self._reflected[(msg["from"].bare, oid.get("id"))] = sid
+                self._reflected[(msg["from"].bare, "@" + sid)] = oid.get("id")
         if msg["mucnick"] == self.cfg.nick or not msg["body"] or not msg["mucnick"]:
             return  # 忽略自己的回显和房间本身的通知
         if msg.xml.find(NS_DELAY) is not None:
@@ -250,8 +288,8 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         room, nick = msg["from"].bare, msg["mucnick"]
         real = self.plugin["xep_0045"].get_jid_property(room, nick, "jid")
         sender = real.bare if real else str(msg["from"])  # 非匿名房间用真实 JID，跨房间 ID 一致
-        body = msg["body"]
-        segments: list[Segment] = []
+        body, reply = self._take_reply(msg, msg["body"])
+        segments: list[Segment] = [reply] if reply else []
         me = self.cfg.nick
         for sep in (":", ",", "，", "："):
             if body.startswith(me + sep):          # XMPP 惯例：「nick: 内容」即提及
@@ -278,7 +316,26 @@ class GatewayXMPP(slixmpp.ClientXMPP):
     def is_encrypted_peer(self, to: str, group: bool) -> bool:
         return self.omemo and not group and to in self._omemo_peers
 
-    async def send_rich(self, to: str, text: str, group: bool, urls: list[str] | None = None) -> str:
+    def room_id_of_own(self, room: str, origin_id: str) -> str:
+        """自己发到群里的消息：返回房间分配的 stanza-id（回复引用需要它），未知时退回 origin-id。"""
+        return self._reflected.get((room, origin_id), origin_id)
+
+    def origin_of_reflection(self, room: str, stanza_id: str) -> str | None:
+        return self._reflected.get((room, "@" + stanza_id))
+
+    @staticmethod
+    def _add_reply(stanza, reply: tuple[str, str, str] | None) -> None:
+        if not reply:
+            return
+        to, rid, fb_len = reply[0], reply[1], int(reply[2])
+        ET.SubElement(stanza.xml, f"{{{NS_REPLY}}}reply", {"to": to, "id": rid})
+        if fb_len:
+            fb = ET.SubElement(stanza.xml, f"{{{NS_FALLBACK}}}fallback", {"for": NS_REPLY})
+            ET.SubElement(fb, f"{{{NS_FALLBACK}}}body", {"start": "0", "end": str(fb_len)})
+
+    async def send_rich(self, to: str, text: str, group: bool, urls: list[str] | None = None,
+                        reply: tuple[str, str, str] | None = None) -> str:
+        """reply = (被回复者 JID, 被回复消息 id, 正文开头回退引用的长度)。"""
         """发送文本（可附带 OOB 链接），返回出站消息 id（同时作为 origin-id）。
         对方最近用 OMEMO 发来消息时加密回复；加密失败直接报错，不降级为明文。"""
         msg = self.make_message(mto=to, mbody=text, mtype="groupchat" if group else "chat")
@@ -302,11 +359,13 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             enc["eme"]["name"] = "OMEMO"
             enc["id"] = mid
             ET.SubElement(enc.xml, "{urn:xmpp:sid:0}origin-id", {"id": mid})
+            self._add_reply(enc, reply)
             enc.send()   # URL 已在正文里；OOB 明文会泄露链接，加密时不附带
             return mid
         ET.SubElement(msg.xml, "{urn:xmpp:sid:0}origin-id", {"id": mid})  # XEP-0359
         if urls:
             msg["oob"]["url"] = urls[0]   # XEP-0066：客户端可内联显示
+        self._add_reply(msg, reply)
         msg.send()
         return mid
 
