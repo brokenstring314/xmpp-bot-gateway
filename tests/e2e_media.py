@@ -21,6 +21,8 @@ import tomli_w
 from aiohttp import web
 
 sys.path.insert(0, "src")
+sys.path.insert(0, "tests")
+from harness import settle  # noqa: E402
 from xmpp_gateway.__main__ import Gateway  # noqa: E402
 from xmpp_gateway.xmpp import media, omemo as omemo_mod  # noqa: E402,F401
 
@@ -163,6 +165,7 @@ async def main():
         u.connect()
     await asyncio.wait_for(u.ready.wait(), 40)
     await until(lambda: gw.xmpp.online and app.ws)
+    await settle(app)
     u.send_presence_subscription(pto=bot_jid)
     await asyncio.sleep(2)
 

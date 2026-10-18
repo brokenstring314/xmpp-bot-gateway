@@ -10,7 +10,7 @@ from aiohttp import web
 
 sys.path.insert(0, "src")
 sys.path.insert(0, "tests")
-from harness import MockApp, User, check, results, until  # noqa: E402
+from harness import settle, MockApp, User, check, results, until  # noqa: E402
 from xmpp_gateway.__main__ import Gateway  # noqa: E402
 
 PORT = 6301
@@ -75,6 +75,7 @@ async def main():
     gw = Gateway(path)
     await gw.start()
     await until(lambda: gw.xmpp.online and app.ws and room in gw.xmpp.rooms(), 20)
+    await settle(app)
     await u.plugin["xep_0045"].join_muc_wait(room, "alice", maxstanzas=0, timeout=15)
 
     # 1. bot app outage: events queue up and arrive in order after it comes back

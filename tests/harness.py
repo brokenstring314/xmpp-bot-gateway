@@ -95,3 +95,14 @@ def room_sid(m):
     return None
 
 
+
+
+async def settle(app, quiet=2.0, timeout=20.0):
+    """等离线存储积压（之前测试遗留的消息）推完：事件流安静 quiet 秒后返回。"""
+    end, n, last = time.time() + timeout, -1, time.time()
+    while time.time() < end:
+        if len(app.events) != n:
+            n, last = len(app.events), time.time()
+        elif time.time() - last >= quiet:
+            return
+        await asyncio.sleep(0.2)

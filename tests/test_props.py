@@ -119,3 +119,19 @@ def test_idmap_prune():
             assert await m.to_int("user", "a@x") == uid   # 用户/群 ID 永不删除
             await m.close()
     asyncio.run(run())
+
+
+def test_single_instance_lock():
+    import asyncio
+    from xmpp_gateway.__main__ import Gateway
+
+    with tempfile.TemporaryDirectory() as d:
+        cfg = os.path.join(d, "c.toml")
+        open(cfg, "w").write(f'[xmpp]\njid = "a@b"\npassword = "x"\n[storage]\ndb = "{d}/g.db"\n')
+        a, b = Gateway(cfg), Gateway(cfg)
+        a._lock()
+        with pytest.raises(SystemExit):
+            b._lock()
+        os.close(a._lock_fd)
+        b._lock()
+        os.close(b._lock_fd)

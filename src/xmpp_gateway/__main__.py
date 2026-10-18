@@ -1,7 +1,9 @@
 """入口：加载配置，启动 XMPP 客户端与各协议出口。"""
 import argparse
 import asyncio
+import fcntl
 import logging
+import os
 
 from .config import load_config
 from .core.bus import EventBus
@@ -18,7 +20,19 @@ class Gateway:
         self.onebot = None
         self._tasks: list[asyncio.Task] = []
 
+    def _lock(self) -> None:
+        """同一数据库只允许一个实例：两个实例共用账号和 OMEMO 存储会互相覆盖设备与会话。"""
+        path = self.cfg.storage.db + ".lock"
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        self._lock_fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(self._lock_fd)
+            raise SystemExit(f"another gateway instance is already using {self.cfg.storage.db}") from None
+
     async def start(self) -> None:
+        self._lock()
         await self.idmap.open()
         if self.cfg.onebot_v11.enabled:
             from .protocols.onebot_v11.server import OneBotV11
@@ -31,6 +45,9 @@ class Gateway:
             t.cancel()
         await self.xmpp.stop()
         await self.idmap.close()
+        if getattr(self, "_lock_fd", None) is not None:
+            os.close(self._lock_fd)
+            self._lock_fd = None
 
 
 async def run(config_path: str) -> None:

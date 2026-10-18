@@ -10,7 +10,7 @@ from aiohttp import web
 
 sys.path.insert(0, "src")
 sys.path.insert(0, "tests")
-from harness import NS_FB, NS_REPLY, MockApp, User, check, results, until  # noqa: E402
+from harness import settle, NS_FB, NS_REPLY, MockApp, User, check, results, until  # noqa: E402
 from xmpp_gateway.__main__ import Gateway  # noqa: E402
 
 PORT, BAIT = 6299, 6300
@@ -65,6 +65,7 @@ async def main():
     gw = Gateway(path)
     await gw.start()
     await until(lambda: gw.xmpp.online and app.ws and room in gw.xmpp.rooms(), 20)
+    await settle(app)
     x = gw.xmpp
 
     def raw(xml: str):
