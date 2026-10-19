@@ -12,7 +12,7 @@ from typing import Any, FrozenSet, Optional
 
 from omemo.storage import Just, Maybe, Nothing, Storage
 from omemo.types import DeviceInformation, JSONType
-from slixmpp.plugins import register_plugin  # type: ignore[attr-defined]
+from slixmpp.plugins import register_plugin
 from slixmpp_omemo import XEP_0384
 
 log = logging.getLogger(__name__)

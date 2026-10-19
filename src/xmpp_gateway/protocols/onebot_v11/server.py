@@ -69,9 +69,10 @@ class OneBotV11:
                     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                     for t in pending:
                         t.cancel()
-                    for t in done:
-                        if t.exception():
-                            raise t.exception()
+                    # 读出所有已结束任务的异常（否则 asyncio 会报 "exception was never retrieved"）
+                    excs = [e for t in done if not t.cancelled() and (e := t.exception()) is not None]
+                    if excs:
+                        raise excs[0]
                     log.warning("reverse WS %s closed by peer", url)
             except asyncio.CancelledError:
                 raise
@@ -101,7 +102,10 @@ class OneBotV11:
             await asyncio.Event().wait()
         while True:
             await asyncio.sleep(interval / 1000)
-            await send(self._meta("heartbeat", status=self._status(), interval=interval))
+            try:
+                await send(self._meta("heartbeat", status=self._status(), interval=interval))
+            except (ConnectionError, aiohttp.ClientError):
+                return   # 连接正在关闭：由接收循环负责报告与重连
 
     async def _pump(self, send, events: asyncio.Queue, carry: list) -> None:
         """carry：上一条连接上没发出去的事件，换新连接后先补发，避免重连瞬间丢消息。"""
@@ -321,7 +325,7 @@ class OneBotV11:
         if not seg:
             return None
         try:
-            rec = await self.idmap.get_message(int((seg.get("data") or {}).get("id")))
+            rec = await self.idmap.get_message(int((seg.get("data") or {}).get("id")))  # type: ignore[arg-type]  # None → TypeError
         except (TypeError, ValueError):
             rec = None
         if not rec or rec["chat"] != target:

@@ -14,7 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 omemo = ["slixmpp-omemo>=2.2", "oldmemo[xml]>=2.0", "twomemo[xml]>=2.0"]
-dev = ["pytest", "pytest-asyncio", "ruff", "hypothesis", "tomli-w"]
+dev = ["pytest", "pytest-asyncio", "ruff", "mypy", "hypothesis", "tomli-w"]
 
 [project.scripts]
 xmpp-gateway = "xmpp_gateway.__main__:main"
@@ -28,3 +28,10 @@ packages = ["src/xmpp_gateway"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true

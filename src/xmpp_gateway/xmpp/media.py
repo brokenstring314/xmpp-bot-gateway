@@ -11,6 +11,8 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import aiohttp
+
+from ..core.events import MediaKind
 from aiohttp.abc import AbstractResolver
 
 from slixmpp.plugins.xep_0454 import XEP_0454
@@ -26,7 +28,7 @@ def ext_of(url_or_name: str) -> str:
     return ext if re.fullmatch(r"[a-z0-9]{1,8}", ext) else ""
 
 
-def kind_of(url_or_name: str) -> str | None:
+def kind_of(url_or_name: str) -> MediaKind | None:
     """按扩展名判断 OneBot 消息段类型：image / record / video；其他返回 None。"""
     e = ext_of(url_or_name)
     if e in IMAGE_EXT:
@@ -102,7 +104,7 @@ class PublicResolver(AbstractResolver):
     def __init__(self) -> None:
         self._r = aiohttp.ThreadedResolver()
 
-    async def resolve(self, host: str, port: int = 0, family: int = socket.AF_INET):
+    async def resolve(self, host: str, port: int = 0, family: socket.AddressFamily = socket.AF_INET):
         infos = await self._r.resolve(host, port, family)
         for i in infos:
             ip = ipaddress.ip_address(i["host"])

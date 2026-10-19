@@ -34,6 +34,9 @@ class OmemoCfg(BaseModel):
     enabled: bool = False
     trust: str = "btbv"
     store_dir: str = "data/omemo"
+    # 收到无法解密的消息（会话不同步）时，重建会话后用加密消息提示对方重发；留空则只重建不提示
+    resync_notice: str = ("I couldn't decrypt your last message because our encryption session was out of "
+                          "sync. It has been repaired, please send it again.")
 
 
 class MediaCfg(BaseModel):

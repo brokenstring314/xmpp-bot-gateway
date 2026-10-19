@@ -15,6 +15,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y prosody && sudo systemctl stop prosody || true
       - run: set -o pipefail; pip install -e ".[omemo,dev]" 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; ruff check src --select F,E9,B,S --ignore S101,S110 2>&1 | tee -a /tmp/ci.log
+      - run: set -o pipefail; python -m mypy 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -m pytest -q tests/test_cq.py tests/test_props.py 2>&1 | tee -a /tmp/ci.log
       - name: start local Prosody
         run: |
@@ -25,6 +26,7 @@ jobs:
       - run: set -o pipefail; python -u tests/e2e_media.py 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -u tests/e2e_reply.py 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -u tests/e2e_mam.py 2>&1 | tee -a /tmp/ci.log
+      - run: set -o pipefail; python -u tests/e2e_omemo_resync.py 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -u tests/e2e_redteam.py 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -u tests/e2e_chaos.py 2>&1 | tee -a /tmp/ci.log
       - if: failure()

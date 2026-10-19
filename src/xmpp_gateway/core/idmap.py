@@ -77,8 +77,9 @@ class IdMap:
         await self.db.execute("INSERT OR IGNORE INTO ids(kind, value) VALUES (?, ?)", (kind, value))
         await self.db.commit()
         async with self.db.execute("SELECT id FROM ids WHERE kind=? AND value=?", (kind, value)) as cur:
-            (rid,) = await cur.fetchone()
-        return BASE + rid
+            row = await cur.fetchone()
+        assert row is not None
+        return BASE + row[0]
 
     async def to_str(self, kind: str, num: int) -> str | None:
         assert self.db

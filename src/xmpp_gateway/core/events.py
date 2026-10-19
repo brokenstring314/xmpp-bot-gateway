@@ -3,6 +3,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
+SegType = Literal["text", "image", "record", "video", "file", "reply", "at"]
+MediaKind = Literal["image", "record", "video"]
+
 
 class Scene(str, Enum):
     PRIVATE = "private"   # 单聊 (type=chat)
@@ -11,7 +14,7 @@ class Scene(str, Enum):
 
 @dataclass
 class Segment:
-    type: Literal["text", "image", "file", "reply", "at"]  # at.data: {"target": JID}
+    type: SegType  # at.data: {"target": JID}
     data: dict = field(default_factory=dict)
 
 

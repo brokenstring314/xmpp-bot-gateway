@@ -9,6 +9,7 @@ import uuid
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 
 import slixmpp
 from slixmpp.xmlstream import ET
@@ -47,6 +48,8 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         self._rate: dict[str, list[float]] = {}
         self._reflected: dict[tuple[str, str], str] = {}  # (room, 自己消息的 origin-id) -> 房间分配的 stanza-id
         self.omemo = bool(omemo_cfg and omemo_cfg.enabled)
+        self.omemo_cfg = omemo_cfg
+        self._resynced: dict[tuple[str, int], float] = {}   # (JID, 设备 id) -> 上次重建会话的时间
         self._omemo_peers: set[str] = set()   # 最近一条消息是 OMEMO 加密的单聊对象 → 回复也加密
         if self.omemo:
             from . import omemo as omemo_mod
@@ -109,7 +112,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         log.info("XMPP session started as %s", self.boundjid.bare)
         if self.omemo:
             try:  # 初始化会话管理器：生成/加载身份并发布设备列表与 bundle
-                await self.plugin["xep_0384"].get_session_manager()
+                await self._omemo_plugin.get_session_manager()
                 log.info("OMEMO ready")
             except Exception as e:  # noqa: BLE001  OMEMO 失败不影响明文收发
                 log.error("OMEMO init failed: %r", e)
@@ -191,7 +194,12 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             self._seen.popitem(last=False)
         return True
 
-    async def _emit(self, ev: MessageEvent, key: str) -> int:
+    @property
+    def _omemo_plugin(self) -> Any:
+        """slixmpp-omemo 注册的 xep_0384 插件（不在 slixmpp 自带的插件类型表里）。"""
+        return cast(Any, self.plugin)["xep_0384"]
+
+    async def _emit(self, ev: MessageEvent | RecallEvent, key: str) -> int:
         """去重后推送事件，并推进该档案的补拉检查点。返回是否推送（1/0）。"""
         chat = ev.room_jid or ev.sender_jid
         if isinstance(ev, RecallEvent):
@@ -212,7 +220,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
     async def join_room(self, room: str) -> None:
         muc = self.plugin["xep_0045"]
         # maxstanzas=0：不回放历史消息，避免把旧消息当新事件推给 bot
-        res = await muc.join_muc_wait(room, self.cfg.nick, maxstanzas=0, timeout=30)
+        res = await muc.join_muc_wait(slixmpp.JID(room), self.cfg.nick, maxstanzas=0, timeout=30)
         pres = res[0] if isinstance(res, tuple) else res  # slixmpp>=1.8 返回 (presence, history)
         if 201 in pres["muc"]["status_codes"]:
             # 房间是本次新建的，处于锁定状态：提交默认配置，变为 instant room
@@ -320,14 +328,18 @@ class GatewayXMPP(slixmpp.ClientXMPP):
                 await self.idmap.find_message(msg["from"].bare, self._msg_id(msg)) is not None:
             return 0   # 已推送过（在线收到或离线存储已投递），也避免重复解密 OMEMO
         encrypted = False
-        if self.omemo and msg["from"].user and self.plugin["xep_0384"].is_encrypted(msg):
+        if self.omemo and msg["from"].user and self._omemo_plugin.is_encrypted(msg):
             if msg["from"].bare in self.rooms():
                 log.info("ignoring OMEMO message via MUC %s (not supported)", msg["from"])
                 return 0
+            if f"{msg['from'].bare}|{self._msg_id(msg)}" in self._seen:
+                return 0   # 同一条加密消息重复到达（离线存储 + MAM）：再解密会失败，直接跳过
             try:
-                dec, dev = await self.plugin["xep_0384"].decrypt_message(msg)
+                dec, dev = await self._omemo_plugin.decrypt_message(msg)
             except Exception as e:  # noqa: BLE001
                 log.warning("OMEMO decrypt failed for message from %s: %r", msg["from"], e)
+                if archived_ts is None:
+                    await self._omemo_resync(msg)
                 return 0
             log.debug("OMEMO message from %s device %s", dev.bare_jid, dev.device_id)
             if not dec["body"]:
@@ -369,8 +381,9 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         url = msg["body"].strip()
         if not url or any(c.isspace() for c in url):
             return None
+        kind = media.kind_of(url)
         if url.startswith("aesgcm://"):
-            if media.kind_of(url) is None:
+            if kind is None:
                 return None
             try:
                 path = await self._fetch_aesgcm(url)
@@ -378,10 +391,10 @@ class GatewayXMPP(slixmpp.ClientXMPP):
                 log.warning("failed to fetch aesgcm media from %s: %r", msg["from"], e)
                 return None
             uri = Path(path).resolve().as_uri()
-            return [Segment(media.kind_of(url), {"file": uri, "url": uri})]
+            return [Segment(kind, {"file": uri, "url": uri})]
         oob = msg["oob"]["url"] if msg.xml.find("{jabber:x:oob}x") is not None else ""
-        if url.startswith(("http://", "https://")) and oob == url and media.kind_of(url):
-            return [Segment(media.kind_of(url), {"file": url, "url": url})]
+        if url.startswith(("http://", "https://")) and oob == url and kind:
+            return [Segment(kind, {"file": url, "url": url})]
         return None
 
     async def _fetch_aesgcm(self, url: str) -> str:
@@ -409,7 +422,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         t.add_done_callback(_log_failure)
 
     async def _handle_group(self, msg, archived_ts: float | None = None, archive_id: str | None = None) -> int:
-        if self.omemo and msg["mucnick"] != self.cfg.nick and self.plugin["xep_0384"].is_encrypted(msg):
+        if self.omemo and msg["mucnick"] != self.cfg.nick and self._omemo_plugin.is_encrypted(msg):
             log.info("ignoring OMEMO group message in %s (group OMEMO not supported yet)", msg["from"].bare)
             return 0
         if msg["mucnick"] == self.cfg.nick:
@@ -455,8 +468,9 @@ class GatewayXMPP(slixmpp.ClientXMPP):
                 segments.append(Segment("at", {"target": self.boundjid.bare}))
         oob = msg["oob"]["url"] if msg.xml.find("{jabber:x:oob}x") is not None else ""
         url = body.strip()
-        if url and url == oob and url.startswith(("http://", "https://")) and media.kind_of(url):
-            segments.append(Segment(media.kind_of(url), {"file": url, "url": url}))
+        kind = media.kind_of(url) if url else None
+        if url and url == oob and url.startswith(("http://", "https://")) and kind:
+            segments.append(Segment(kind, {"file": url, "url": url}))
         else:
             segments.append(Segment("text", {"text": body}))
         return await self._emit(MessageEvent(
@@ -466,6 +480,42 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             sender_name=nick,
             sender_role=self.plugin["xep_0045"].get_jid_property(room, nick, "affiliation") or "none",
         ), f"{room}")
+
+    async def _omemo_resync(self, msg) -> None:
+        """对方用我们已没有（或已不同步）的会话加密：重建会话（发出新的密钥交换），
+        让对方客户端下一条消息改用新会话，并用加密消息提示对方重发。同一设备 5 分钟内只做一次。"""
+        sender = msg["from"].bare
+        sid = None
+        for ns in ("urn:xmpp:omemo:2", "eu.siacs.conversations.axolotl"):
+            h = msg.xml.find(f"{{{ns}}}encrypted/{{{ns}}}header")
+            if h is not None and (h.get("sid") or "").isdigit():
+                sid = int(h.get("sid"))
+                break
+        if sid is None:
+            return
+        now = time.monotonic()
+        if now - self._resynced.get((sender, sid), -1e9) < 300:
+            return
+        self._resynced[(sender, sid)] = now
+        try:
+            sm = await self._omemo_plugin.get_session_manager()
+            dev = next((d for d in await sm.get_device_information(sender) if d.device_id == sid), None)
+            if dev is None:
+                await sm.refresh_device_lists(sender)
+                dev = next((d for d in await sm.get_device_information(sender) if d.device_id == sid), None)
+            if dev is None:
+                log.warning("OMEMO: device %s of %s is unknown; cannot rebuild the session", sid, sender)
+                return
+            errors = await sm.replace_sessions(dev)
+            if errors:
+                log.warning("OMEMO: rebuilding sessions with %s/%s partly failed: %s", sender, sid, errors)
+            log.info("OMEMO: rebuilt session with device %s of %s", sid, sender)
+            notice = self.omemo_cfg.resync_notice if self.omemo_cfg else ""
+            if notice:
+                self._set_omemo_peer(sender, True)   # 提示必须加密发送
+                await self.send_rich(sender, notice, group=False)
+        except Exception as e:  # noqa: BLE001
+            log.warning("OMEMO: failed to rebuild session with %s/%s: %r", sender, sid, e)
 
     # ---------- 出站 ----------
     def rooms(self) -> list[str]:
@@ -494,15 +544,15 @@ class GatewayXMPP(slixmpp.ClientXMPP):
     async def send_rich(self, to: str, text: str, group: bool, urls: list[str] | None = None,
                         reply: tuple[str, str, str] | None = None,
                         mentions: list[tuple[int, int, str]] | None = None) -> str:
-        """reply = (被回复者 JID, 被回复消息 id, 正文开头回退引用的长度)。"""
         """发送文本（可附带 OOB 链接），返回出站消息 id（同时作为 origin-id）。
+        reply = (被回复者 JID, 被回复消息 id, 正文开头回退引用的长度)。
         对方最近用 OMEMO 发来消息时加密回复；加密失败直接报错，不降级为明文。"""
         msg = self.make_message(mto=to, mbody=text, mtype="groupchat" if group else "chat")
         mid = uuid.uuid4().hex
         msg["id"] = mid
         if self.is_encrypted_peer(to, group):
             from slixmpp.jid import JID
-            xep = self.plugin["xep_0384"]
+            xep = self._omemo_plugin
             try:
                 enc, errors = await xep.encrypt_message(msg, JID(to))
             except Exception as e:  # noqa: BLE001  设备列表可能过期：强制刷新后重试一次
@@ -561,8 +611,9 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         if user.startswith(room + "/"):
             return user.split("/", 1)[1]
         muc = self.plugin["xep_0045"]
-        for nick in muc.get_roster(room) or []:
-            j = muc.get_jid_property(room, nick, "jid")
+        room_j = slixmpp.JID(room)
+        for nick in muc.get_roster(room_j) or []:
+            j = muc.get_jid_property(room_j, nick, "jid")
             if j and j.bare == user:
                 return nick
         return None

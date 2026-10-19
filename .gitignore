@@ -12,3 +12,5 @@ dist/
 .test_user.json
 tests/prosody/run/
 .test_bots.json
+soak.toml
+soak-*/

@@ -28,6 +28,8 @@ mam_max_age = 86400     # 秒；只补拉这段时间内的消息
 enabled = false
 trust = "btbv"           # btbv：自动信任新设备 | manual：不自动信任，未信任设备收不到加密消息
 store_dir = "data/omemo" # 身份密钥与会话（JSON，权限 600），请妥善备份与保管
+# 收到因会话不同步而无法解密的消息时：自动重建会话，并用加密消息提示对方重发；设为 "" 只重建不提示
+# resync_notice = "I couldn't decrypt your last message ... please send it again."
 
 [media]
 dir = "data/media"            # decrypted incoming files (aesgcm://) are saved here

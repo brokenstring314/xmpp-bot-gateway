@@ -1,14 +1,25 @@
 """入口：加载配置，启动 XMPP 客户端与各协议出口。"""
 import argparse
 import asyncio
-import fcntl
 import logging
 import os
+import sys
+from typing import Any
 
 from .config import load_config
 from .core.bus import EventBus
 from .core.idmap import IdMap
 from .xmpp.client import GatewayXMPP
+
+
+def _try_lock(fd: int) -> None:
+    """非阻塞独占锁；已被占用时抛 OSError。Linux/macOS 用 flock，Windows 用 msvcrt。"""
+    if sys.platform == "win32":
+        import msvcrt
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 class Gateway:
@@ -17,7 +28,8 @@ class Gateway:
         self.idmap = IdMap(self.cfg.storage.db, self.cfg.storage.keep_days)
         self.bus = EventBus()
         self.xmpp = GatewayXMPP(self.cfg.xmpp, self.bus, self.idmap, self.cfg.omemo, self.cfg.media)
-        self.onebot = None
+        self.onebot: Any = None
+        self._lock_fd: int | None = None
         self._tasks: list[asyncio.Task] = []
 
     def _lock(self) -> None:
@@ -26,8 +38,8 @@ class Gateway:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self._lock_fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+            _try_lock(self._lock_fd)
+        except OSError:
             os.close(self._lock_fd)
             raise SystemExit(f"another gateway instance is already using {self.cfg.storage.db}") from None
 
@@ -45,7 +57,7 @@ class Gateway:
             t.cancel()
         await self.xmpp.stop()
         await self.idmap.close()
-        if getattr(self, "_lock_fd", None) is not None:
+        if self._lock_fd is not None:
             os.close(self._lock_fd)
             self._lock_fd = None
 
