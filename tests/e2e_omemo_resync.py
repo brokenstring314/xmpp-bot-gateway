@@ -141,8 +141,7 @@ async def main():
 
     # 3. the bot loses its session with the user (old backup restored, store damaged ...)
     await gw.stop()
-    store_file = next(p for p in os.listdir(f"{WORK}/bot") if p.endswith(".json"))
-    store_path = f"{WORK}/bot/{store_file}"
+    store_path = f"{WORK}/bot/{bot_jid}.json"   # not the .peers.json next to it
     data = json.load(open(store_path))
     dropped = [key for key in data if key.startswith(f"/{NS_OLD}/{user_jid}/")]   # sessions with the user
     for key in dropped:
