@@ -89,8 +89,20 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         self.connect(host=self.cfg.server or None, port=self.cfg.port if self.cfg.server else None)
 
     async def stop(self) -> None:
+        """先停止处理入站消息和补拉，再等连接真正关闭：关闭过程中到达的消息不处理（也不标记为已推送），
+        下次启动由 MAM 补拉，避免在数据库关闭后半处理而丢消息。"""
         self._stopping = True
-        self.disconnect()
+        if self._catchup_task is not None and not self._catchup_task.done():
+            self._catchup_task.cancel()
+        if self.online or self.transport is not None:
+            closed = asyncio.Event()
+            self.add_event_handler("disconnected", lambda *_: closed.set(), disposable=True)
+            self.disconnect()
+            try:
+                await asyncio.wait_for(closed.wait(), 5)
+            except asyncio.TimeoutError:
+                self.abort()
+        self.online = False
 
     async def _on_disconnected(self, reason=None) -> None:
         was_online, self.online = self.online, False
@@ -307,8 +319,11 @@ class GatewayXMPP(slixmpp.ClientXMPP):
 
     async def _on_message(self, msg):
         # 解密需要网络往返（下载 bundle 等），用锁保证单聊消息按到达顺序推送
+        if self._stopping:
+            return
         async with self._in_lock:
-            await self._process_message(msg)
+            if not self._stopping:
+                await self._process_message(msg)
 
     async def _process_message(self, msg, archived_ts: float | None = None) -> int:
         if msg["type"] == "error":
@@ -418,6 +433,8 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         return body
 
     def _on_groupchat(self, msg):
+        if self._stopping:
+            return
         t = asyncio.ensure_future(self._handle_group(msg))
         t.add_done_callback(_log_failure)
 
