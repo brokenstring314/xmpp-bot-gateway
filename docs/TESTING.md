@@ -7,6 +7,7 @@ bash tests/prosody/run.sh &          # 本地 Prosody（127.0.0.1:15222）
 python -m mypy                       # 类型检查
 python -m pytest -q tests/test_cq.py tests/test_props.py
 for t in p0 media reply mam omemo_resync redteam chaos; do python -u tests/e2e_$t.py; done
+# with coverage: replace `python -u` by `python -u tests/cov_run.py`, then `coverage combine && coverage report`
 ```
 
 ## 24 小时挂机（tests/soak.py）

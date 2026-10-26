@@ -4,6 +4,9 @@
   2. duplicate delivery of the same encrypted stanza (offline storage + MAM) -> one event, no decrypt attempt
   3. broken session (the bot lost its session with the user, e.g. restored an old backup) -> the bot
      rebuilds the session and tells the user, and the user's next message gets through
+  4. desynced session (the bot still has a session, but its ratchet state no longer matches the user's)
+     -> same recovery as 3
+  5. the user reinstalls the client (new device, new identity key) -> the first message gets through
 
 Usage: start tests/prosody/run.sh, then run `python3 -u tests/e2e_omemo_resync.py`.
 """
@@ -162,6 +165,52 @@ async def main():
     (await u.encrypted("again-3")).send()
     ev = await until(lambda: next((e for e in app.events[k:] if e["raw_message"] == "again-3"), None), 20)
     check("broken session: next message gets through", ev, (texts(app, k), counter.lines[-3:]))
+
+    # 4. the bot keeps a session, but a stale one: its ratchet no longer matches the user's
+    await gw.stop()
+    uid = json.load(open(f"{WORK}/user.json"))["/own_device_id"]
+    data = json.load(open(store_path))
+    mine = f"/{NS_OLD}/{user_jid}/{uid}/double_ratchet"
+    other = next((key for key in data if key.endswith("/double_ratchet") and key != mine), None)
+    check("test setup: bot session with the user desynced", mine in data and other, (mine, other))
+    if mine in data and other:
+        data[mine] = data[other]
+        json.dump(data, open(store_path, "w"))
+    gw = Gateway(path)
+    await gw.start()
+    await until(lambda: gw.xmpp.online and app.ws, 20)
+    await asyncio.sleep(3)
+    k, n_in, fails = len(app.events), len(u.inbox), counter.count("OMEMO decrypt failed")
+    (await u.encrypted("stale-4")).send()
+    note = await until(lambda: next((m for m in u.inbox[n_in:] if m[0] == "enc"), None), 20)
+    check("desynced session: decrypt fails and the user is told to resend",
+          note and counter.count("OMEMO decrypt failed") > fails, (u.inbox[n_in:], counter.lines[-3:]))
+    check("desynced session: undecryptable message not forwarded", "stale-4" not in texts(app, k))
+    await asyncio.sleep(1)
+    (await u.encrypted("again-4")).send()
+    ev = await until(lambda: next((e for e in app.events[k:] if e["raw_message"] == "again-4"), None), 20)
+    check("desynced session: next message gets through", ev, (texts(app, k), counter.lines[-3:]))
+
+    # 5. the user reinstalls the client: fresh device, fresh identity, same account
+    u.disconnect()
+    await asyncio.sleep(1)
+    os.remove(f"{WORK}/user.json")
+    u = OmemoUser(user_jid, acc["user"]["password"], bot_jid)
+    u.enable_starttls = u.enable_direct_tls = False
+    u.enable_plaintext = True
+    u.plugin["feature_mechanisms"].unencrypted_plain = True
+    u.connect(host="127.0.0.1", port=15222)
+    await asyncio.wait_for(u.ready.wait(), 20)
+    await asyncio.sleep(2)
+    await u.plugin["xep_0384"].refresh_device_lists({JID(bot_jid)}, force_download=True)
+    k, fails = len(app.events), counter.count("OMEMO decrypt failed")
+    (await u.encrypted("reinstall-5")).send()
+    ev = await until(lambda: next((e for e in app.events[k:] if e["raw_message"] == "reinstall-5"), None), 20)
+    check("reinstalled client: first message gets through", ev, (texts(app, k), counter.lines[-3:]))
+    if ev:
+        await app.call("send_private_msg", user_id=ev["user_id"], message="reply-5")
+    got = await until(lambda: ("enc", "reply-5") in u.inbox, 20)
+    check("reinstalled client: reply reaches the new device", got, u.inbox[-3:])
 
     await gw.stop()
     ok = sum(results.values())

@@ -14,3 +14,5 @@ tests/prosody/run/
 .test_bots.json
 soak.toml
 soak-*/
+.coverage
+.coverage.*
