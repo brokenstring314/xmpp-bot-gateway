@@ -45,14 +45,15 @@ class OneBotV11:
         self.self_id = await self.idmap.to_int("user", self.xmpp.boundjid.bare)
         if not self.cfg.reverse_ws:
             log.warning("OneBot v11 enabled but no reverse_ws configured")
-        await asyncio.gather(*(self._reverse_ws(url) for url in self.cfg.reverse_ws))
+        await asyncio.gather(*(self._reverse_ws(ep.url, self.cfg.access_token if ep.access_token is None
+                                                else ep.access_token) for ep in self.cfg.reverse_ws))
 
     # ---------- 连接管理 ----------
-    async def _reverse_ws(self, url: str) -> None:
+    async def _reverse_ws(self, url: str, token: str) -> None:
         headers = {"X-Self-ID": str(self.self_id), "X-Client-Role": "Universal",
                    "User-Agent": f"xmpp-bot-gateway/{__version__}"}
-        if self.cfg.access_token:
-            headers["Authorization"] = f"Bearer {self.cfg.access_token}"
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         events = self.bus.subscribe()
         carry: list = []
         delay = 1

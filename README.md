@@ -63,6 +63,16 @@ xmpp-gateway -c config.toml
 
 In your bot framework, add a OneBot v11 adapter that listens for a reverse WebSocket connection, and put its URL in `onebot_v11.reverse_ws`.
 
+## Configuration
+
+Everything is set in one TOML file; `config.example.toml` lists every option with its default.
+
+- `xmpp-gateway -c config.toml --check` validates the file and exits. Unknown keys are rejected, so a typo fails at startup instead of being silently ignored.
+- Any string can read an environment variable with `${NAME}`, e.g. `password = "${XMPP_PASSWORD}"`, so secrets don't have to live in the file.
+- `[log]` sets the level and an optional log file rotated by size.
+- Each `onebot_v11.reverse_ws` entry is a URL or `{ url = "...", access_token = "..." }`, so several frameworks can connect with different tokens.
+- Timeouts and backoffs (XMPP reconnect, room join, media transfer, OMEMO resync interval) are configurable too.
+
 ## Tests
 
 ```bash

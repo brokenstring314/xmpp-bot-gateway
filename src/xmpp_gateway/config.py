@@ -1,9 +1,18 @@
 """配置模型（pydantic）。"""
+import os
+import re
 import tomllib
-from pydantic import BaseModel, field_validator
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
-class XmppCfg(BaseModel):
+class Strict(BaseModel):
+    """未知配置项直接报错（防止拼错的键被静默忽略）。"""
+    model_config = ConfigDict(extra="forbid")
+
+
+class XmppCfg(Strict):
     jid: str
     password: str
     server: str = ""
@@ -19,6 +28,9 @@ class XmppCfg(BaseModel):
     mam_catchup: bool = True     # 上线/重连后用 MAM（XEP-0313）补拉离线期间的单聊与群聊消息
     mam_max_messages: int = 50   # 每个会话档案最多补拉条数
     mam_max_age: int = 86400     # s；只补拉这段时间内的消息
+    reconnect_max: int = 60      # s；XMPP 断线重连最大退避
+    status: str = ""             # 在线状态文字（presence status）
+    join_timeout: int = 30       # s；加入群聊等待超时
 
     @field_validator("accept_invites", mode="before")
     @classmethod
@@ -30,47 +42,76 @@ class XmppCfg(BaseModel):
         return v
 
 
-class OmemoCfg(BaseModel):
+class OmemoCfg(Strict):
     enabled: bool = False
     trust: str = "btbv"
     store_dir: str = "data/omemo"
     # 收到无法解密的消息（会话不同步）时，重建会话后用加密消息提示对方重发；留空则只重建不提示
     resync_notice: str = ("I couldn't decrypt your last message because our encryption session was out of "
                           "sync. It has been repaired, please send it again.")
+    resync_cooldown: int = 300   # s；同一设备两次会话重建的最小间隔
 
 
-class MediaCfg(BaseModel):
+class MediaCfg(Strict):
     dir: str = "data/media"          # 解密后的入站媒体（aesgcm://）保存目录
     max_size_mb: int = 20            # 上传/下载单个文件上限
     aesgcm_insecure_http: bool = False  # 仅本地测试：aesgcm:// 链接用 http 下载
     allow_private_hosts: bool = False   # 仅本地测试：允许下载内网/本机地址上的入站媒体（默认拒绝，防 SSRF）
     max_dir_mb: int = 500               # 入站媒体目录总大小上限，超出时删除最旧的文件；0 不限
     local_file_dirs: list[str] = []     # 出站 file:// / 本地路径只允许这些目录；空 = 不限制
+    http_timeout: int = 60              # s；单次媒体下载/上传超时
 
 
-class StorageCfg(BaseModel):
+class StorageCfg(Strict):
     db: str = "data/gateway.db"
     keep_days: int = 30   # 消息记录（get_msg / 回复 / 撤回用）保留天数；0 永久保留
 
 
-class OneBotV11Cfg(BaseModel):
+class ReverseWs(Strict):
+    url: str
+    access_token: str | None = None   # 不填则用 [onebot_v11].access_token
+
+
+class OneBotV11Cfg(Strict):
     enabled: bool = True
-    reverse_ws: list[str] = []
+    # 每项可以是 URL 字符串，或 {url = "...", access_token = "..."}（不同框架用不同 token）
+    reverse_ws: list[ReverseWs] = []
     access_token: str = ""
     heartbeat_interval: int = 5000   # ms；<=0 关闭心跳
     message_format: str = "array"    # array | string（CQ 码）
     event_max_age: int = 60          # s；断线期间积压超过该时长的事件不再推送，0 不限
     reconnect_max: int = 30          # s；反向 WS 重连最大退避
 
+    @field_validator("reverse_ws", mode="before")
+    @classmethod
+    def _ws(cls, v):
+        return [{"url": x} if isinstance(x, str) else x for x in (v or [])]
 
-class SatoriCfg(BaseModel):
+
+class SatoriCfg(Strict):
     enabled: bool = False
     host: str = "127.0.0.1"
     port: int = 5140
     token: str = ""
 
 
-class Config(BaseModel):
+class LogCfg(Strict):
+    level: str = "INFO"          # DEBUG | INFO | WARNING | ERROR
+    file: str = ""               # 同时写入该文件（按大小轮转）；空 = 只输出到终端
+    max_mb: int = 10             # 单个日志文件上限
+    backups: int = 3             # 保留的旧日志文件个数
+
+    @field_validator("level")
+    @classmethod
+    def _level(cls, v: str) -> str:
+        v = v.upper()
+        if v not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+            raise ValueError("log.level must be DEBUG, INFO, WARNING, ERROR or CRITICAL")
+        return v
+
+
+class Config(Strict):
+    log: LogCfg = LogCfg()
     xmpp: XmppCfg
     omemo: OmemoCfg = OmemoCfg()
     media: MediaCfg = MediaCfg()
@@ -79,6 +120,24 @@ class Config(BaseModel):
     satori: SatoriCfg = SatoriCfg()
 
 
+_ENV = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _expand(v: Any) -> Any:
+    """字符串里的 ${NAME} 换成环境变量（如 password = "${XMPP_PASSWORD}"，密钥不必写进文件）。"""
+    if isinstance(v, str):
+        def sub(m: re.Match) -> str:
+            if m.group(1) not in os.environ:
+                raise ValueError(f"environment variable {m.group(1)} is not set")
+            return os.environ[m.group(1)]
+        return _ENV.sub(sub, v)
+    if isinstance(v, dict):
+        return {k: _expand(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_expand(x) for x in v]
+    return v
+
+
 def load_config(path: str) -> Config:
     with open(path, "rb") as f:
-        return Config.model_validate(tomllib.load(f))
+        return Config.model_validate(_expand(tomllib.load(f)))

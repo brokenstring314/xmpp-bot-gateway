@@ -133,12 +133,12 @@ class PublicResolver(AbstractResolver):
         await self._r.close()
 
 
-async def download(url: str, limit: int, allow_private: bool = False) -> bytes:
+async def download(url: str, limit: int, allow_private: bool = False, timeout: float = 60) -> bytes:
     """下载入站媒体：限制大小、不跟随重定向；默认只允许公网地址。"""
     if not allow_private:
         check_public_url(url)
     conn = aiohttp.TCPConnector(resolver=PublicResolver()) if not allow_private else aiohttp.TCPConnector()
-    async with aiohttp.ClientSession(connector=conn, timeout=aiohttp.ClientTimeout(total=60)) as http:
+    async with aiohttp.ClientSession(connector=conn, timeout=aiohttp.ClientTimeout(total=timeout)) as http:
         async with http.get(url, allow_redirects=False) as r:
             r.raise_for_status()
             if r.status != 200:

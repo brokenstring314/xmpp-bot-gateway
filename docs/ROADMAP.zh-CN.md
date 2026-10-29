@@ -15,6 +15,7 @@
   - 待真机验证（自动化测试已通过，真实客户端未点过）：语音消息、对方撤回通知、群里 @ 机器人回复、停机后 MAM 补收；Gajim 全部项目
   - 框架兼容（2026-10-29）：AstrBot 4.29.3、LangBot 4.11.2、NoneBot2 2.5.0 单聊和群聊往返均通过（tests/e2e_framework.py）。优先级：第一梯队 AstrBot、LangBot、NoneBot2；第二梯队 OpenClaw、Hermes Agent（通过社区 OneBot v11 插件）和 Koishi（需要 Satori）；第二梯队暂缓。
   - 第四轮：第一梯队框架整链红队测试（2026-10-29）：发现并修复两个问题。（1）在隐藏真实 JID 的房间里，成员的 user_id 来自「房间/昵称」，原成员离开后任何人改用同一昵称就拿到同一个 user_id（以及框架绑定在它上面的权限或用户状态）。现在优先用可见的真实 JID，否则用服务器给的 XEP-0421 occupant-id（仅当房间声明支持时才信任；客户端自带的 id 会被服务器剥掉）；按昵称识别只作最后兜底并记录警告。发给这类成员的私信会发到其当前昵称。（2）入站媒体链接即使指向内网或本机地址，也会作为 image/record/video 段交给框架，框架或插件去下载时就成了 SSRF 跳板；现在这类链接只作为纯文本传给框架。e2e_redteam 19/19（旧代码上有 3 项失败）。新增 tests/e2e_redteam_chain.py，连真实框架测试（攻击者在单聊、冒用管理员昵称的群、昵称被抢占后的匿名房间里发管理员指令；管理员指令仍可用；内网媒体链接金丝雀；CQ 码注入；刷屏）：AstrBot 4.29.3 11/11，NoneBot2 2.5.0 11/11，LangBot 4.11.2 6/6（没有内置的管理员指令，跳过权限项）。
+  - 配置（2026-10-29）：剩余写死的参数改为可配置：`[log]` 日志级别与轮转日志文件，XMPP `reconnect_max`、`join_timeout`、在线状态 `status`，OMEMO `resync_cooldown`，媒体 `http_timeout`；`reverse_ws` 每项可单独设 `access_token`；任何字符串支持 `${NAME}` 环境变量；未知配置项直接报错；`--check` 只校验配置文件。新增 `tests/test_config.py`（已进 CI）。网页配置界面暂不考虑。
   - 待做：定期复查依赖漏洞（下次 2026-11 底）
 - **P3 多协议**（暂缓）：Satori 接 Koishi；OneBot v11 正向 WS / HTTP API；OneBot 12 / Milky 视需求
 - **P4**（暂缓）：OMEMO 群聊（非匿名 members-only 房间）、多账号、WebUI、Docker 发布

@@ -71,11 +71,34 @@ async def run(config_path: str) -> None:
         await gw.stop()
 
 
+def setup_logging(lc) -> None:
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if lc.file:
+        from logging.handlers import RotatingFileHandler
+        os.makedirs(os.path.dirname(lc.file) or ".", exist_ok=True)
+        handlers.append(RotatingFileHandler(lc.file, maxBytes=lc.max_mb * 1024 * 1024,
+                                            backupCount=lc.backups, encoding="utf-8"))
+    root = logging.getLogger()
+    root.setLevel(lc.level)
+    for h in handlers:
+        h.setFormatter(fmt)
+        root.addHandler(h)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="xmpp-gateway")
     p.add_argument("-c", "--config", default="config.toml")
+    p.add_argument("--check", action="store_true", help="validate the config file and exit")
     args = p.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    try:
+        cfg = load_config(args.config)
+    except (OSError, ValueError) as e:   # pydantic ValidationError 是 ValueError 的子类
+        raise SystemExit(f"config error in {args.config}:\n{e}") from None
+    if args.check:
+        print(f"{args.config}: OK")
+        return
+    setup_logging(cfg.log)
     try:
         asyncio.run(run(args.config))
     except KeyboardInterrupt:

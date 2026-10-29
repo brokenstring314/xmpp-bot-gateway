@@ -63,6 +63,16 @@ xmpp-gateway -c config.toml
 
 在机器人框架里添加一个 OneBot v11 适配器，让它监听反向 WebSocket 连接，并把它的地址填到 `onebot_v11.reverse_ws`。
 
+## 配置
+
+所有设置都在一个 TOML 文件里；`config.example.toml` 列出了每一项及默认值。
+
+- `xmpp-gateway -c config.toml --check` 只校验配置文件然后退出。未知配置项会直接报错，拼错的键不会被静默忽略。
+- 任何字符串都可以用 `${NAME}` 读取环境变量，例如 `password = "${XMPP_PASSWORD}"`，密钥不必写进文件。
+- `[log]` 设置日志级别，以及可选的按大小轮转的日志文件。
+- `onebot_v11.reverse_ws` 的每一项可以是 URL，也可以是 `{ url = "...", access_token = "..." }`，多个框架可以用不同的 token 连接。
+- 各种超时和退避（XMPP 重连、进群、媒体传输、OMEMO 会话重建间隔）也都可以配置。
+
 ## 测试
 
 ```bash

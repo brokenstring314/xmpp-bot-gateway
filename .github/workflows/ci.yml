@@ -16,7 +16,7 @@ jobs:
       - run: set -o pipefail; pip install -e ".[omemo,dev]" 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; ruff check src --select F,E9,B,S --ignore S101,S110 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -m mypy 2>&1 | tee -a /tmp/ci.log
-      - run: set -o pipefail; python -m pytest -q tests/test_cq.py tests/test_props.py 2>&1 | tee -a /tmp/ci.log
+      - run: set -o pipefail; python -m pytest -q tests/test_cq.py tests/test_props.py tests/test_config.py 2>&1 | tee -a /tmp/ci.log
       - name: start local Prosody
         run: |
           echo '== prosody' >> /tmp/ci.log

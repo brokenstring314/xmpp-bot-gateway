@@ -118,12 +118,12 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             self._backoff = 2
         log.warning("XMPP disconnected (%s); reconnecting in %ss", reason, self._backoff)
         await asyncio.sleep(self._backoff)
-        self._backoff = min(self._backoff * 2, 60)
+        self._backoff = min(self._backoff * 2, max(self.cfg.reconnect_max, 1))
         if not self._stopping and not self.online:
             self.start()
 
     async def _on_start(self, _):
-        self.send_presence()
+        self.send_presence(pstatus=self.cfg.status or None)
         await self.get_roster()
         self.online = True
         self._backoff = 2
@@ -238,7 +238,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
     async def join_room(self, room: str) -> None:
         muc = self.plugin["xep_0045"]
         # maxstanzas=0：不回放历史消息，避免把旧消息当新事件推给 bot
-        res = await muc.join_muc_wait(slixmpp.JID(room), self.cfg.nick, maxstanzas=0, timeout=30)
+        res = await muc.join_muc_wait(slixmpp.JID(room), self.cfg.nick, maxstanzas=0, timeout=self.cfg.join_timeout)
         pres = res[0] if isinstance(res, tuple) else res  # slixmpp>=1.8 返回 (presence, history)
         if 201 in pres["muc"]["status_codes"]:
             # 房间是本次新建的，处于锁定状态：提交默认配置，变为 instant room
@@ -470,7 +470,8 @@ class GatewayXMPP(slixmpp.ClientXMPP):
     async def _fetch_aesgcm(self, url: str) -> str:
         src, frag = media.aesgcm_split(url, self.media_cfg.aesgcm_insecure_http)
         limit = self.media_cfg.max_size_mb * 1024 * 1024
-        payload = await media.download(src, limit + 16, self.media_cfg.allow_private_hosts)
+        payload = await media.download(src, limit + 16, self.media_cfg.allow_private_hosts,
+                                       self.media_cfg.http_timeout)
         data = media.aesgcm_decrypt(payload, frag)
         d = Path(self.media_cfg.dir)
         d.mkdir(parents=True, exist_ok=True)
@@ -564,7 +565,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         if sid is None:
             return
         now = time.monotonic()
-        if now - self._resynced.get((sender, sid), -1e9) < 300:
+        if now - self._resynced.get((sender, sid), -1e9) < (self.omemo_cfg.resync_cooldown if self.omemo_cfg else 300):
             return
         self._resynced[(sender, sid)] = now
         try:
@@ -657,10 +658,10 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         if encrypt:
             payload, frag = media.aesgcm_encrypt(data)
             url = await up.upload_file(filename, size=len(payload), content_type="application/octet-stream",
-                                       input_file=io.BytesIO(payload), timeout=60)
+                                       input_file=io.BytesIO(payload), timeout=self.media_cfg.http_timeout)
             return media.aesgcm_url(url, frag)
         return await up.upload_file(filename, size=len(data), content_type=content_type,
-                                    input_file=io.BytesIO(data), timeout=60)
+                                    input_file=io.BytesIO(data), timeout=self.media_cfg.http_timeout)
 
     def send_retract(self, to: str, origin_id: str, group: bool) -> None:
         """XEP-0424 撤回自己发出的消息（origin_id 可为逗号分隔的多条）。"""

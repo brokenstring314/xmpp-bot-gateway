@@ -1,59 +1,70 @@
-# 复制为 config.toml 后填写
+# Copy to config.toml and fill in. Check it with: python -m xmpp_gateway -c config.toml --check
+# Unknown keys are rejected, so a typo fails at startup instead of being ignored.
+# Any string may use ${NAME} to read an environment variable, e.g. password = "${XMPP_PASSWORD}".
+
+[log]
+level = "INFO"        # DEBUG | INFO | WARNING | ERROR
+file = ""             # also write to this file, rotated by size ("" = terminal only)
+max_mb = 10           # size of one log file before rotating
+backups = 3           # rotated files to keep
 
 [xmpp]
 jid = "bot@example.org"
 password = "change-me"
-# 留空则从 JID 域名自动解析 SRV
-server = ""
+server = ""           # empty = resolve from the JID's domain (DNS SRV)
 port = 5222
-# starttls | direct | none（none 仅限本地测试服务器）
-tls = "starttls"
-# 要自动加入的群聊（MUC）
-rooms = ["room@conference.example.org"]
+tls = "starttls"      # starttls | direct | none (none: local test servers only)
+rooms = ["room@conference.example.org"]   # group chats (MUC) to join on start
 nick = "bot"
-# 收到群邀请（XEP-0045 / XEP-0249）时自动加入
-# 群邀请：roster = 只接受花名册联系人和 admins 的邀请（默认）；all = 任何人；none = 不自动加入
+status = ""           # presence status text shown to contacts
+# Room invitations (XEP-0045 / XEP-0249): roster = only from roster contacts and admins (default);
+# all = from anyone; none = never join automatically
 accept_invites = "roster"
-admins = []                  # trusted JIDs whose invites are always accepted
-rate_limit = 20              # max messages per sender per minute forwarded to the bot (0 = unlimited)
-max_body_chars = 10000       # longer incoming messages are truncated (0 = unlimited)
-# 上线/重连后用 MAM 补拉离线期间的消息（首次运行从当前时间开始）
-mam_catchup = true
-mam_max_messages = 50   # 每个会话档案最多补拉条数
-mam_max_age = 86400     # 秒；只补拉这段时间内的消息
+admins = []           # trusted JIDs whose invitations are always accepted
+rate_limit = 20       # max messages per sender per minute forwarded to the bot (0 = unlimited)
+max_body_chars = 10000  # longer incoming messages are truncated (0 = unlimited)
+mam_catchup = true    # fetch messages missed while offline from the server archive (MAM)
+mam_max_messages = 50 # per archive
+mam_max_age = 86400   # s, only fetch messages newer than this
+reconnect_max = 60    # s, max backoff between XMPP reconnects
+join_timeout = 30     # s, how long to wait when joining a room
 
 [omemo]
-# 单聊 OMEMO 加密；需安装可选依赖：pip install -e ".[omemo]"
-# 对方用 OMEMO 发来消息时解密，回复也加密；对方改发明文后回复恢复明文
+# OMEMO for direct chats; needs the optional dependencies: pip install -e ".[omemo]"
+# Encrypted messages are decrypted and the reply is encrypted; plaintext gets plaintext.
 enabled = false
-trust = "btbv"           # btbv：自动信任新设备 | manual：不自动信任，未信任设备收不到加密消息
-store_dir = "data/omemo" # 身份密钥与会话（JSON，权限 600），请妥善备份与保管
-# 收到因会话不同步而无法解密的消息时：自动重建会话，并用加密消息提示对方重发；设为 "" 只重建不提示
+trust = "btbv"        # btbv: trust new devices automatically | manual: never trust automatically
+store_dir = "data/omemo"  # identity keys and sessions (JSON, mode 600); back it up and keep it private
+# When a message can't be decrypted (session out of sync) the session is rebuilt and this encrypted
+# notice asks the sender to resend; "" rebuilds without a notice.
 # resync_notice = "I couldn't decrypt your last message ... please send it again."
+resync_cooldown = 300 # s, min time between session rebuilds for one device
 
 [media]
-dir = "data/media"            # decrypted incoming files (aesgcm://) are saved here
-max_size_mb = 20              # per-file limit for uploads and downloads
-max_dir_mb = 500              # oldest files in `dir` are deleted beyond this total (0 = unlimited)
-local_file_dirs = []          # if set, outgoing file:// paths must be inside one of these directories
-# allow_private_hosts = false # incoming media on private/loopback addresses is refused unless true (local tests only)
+dir = "data/media"    # decrypted incoming files (aesgcm://) are saved here
+max_size_mb = 20      # per-file limit for uploads and downloads
+max_dir_mb = 500      # oldest files in `dir` are deleted beyond this total (0 = unlimited)
+local_file_dirs = []  # if set, outgoing file:// paths must be inside one of these directories
+http_timeout = 60     # s, per media download or upload
+# allow_private_hosts = false  # media on private/loopback addresses is refused unless true (local tests only)
 
 [storage]
-db = "data/gateway.db"   # JID <-> int64 ID 映射、消息 ID 映射
-keep_days = 30           # message records older than this are pruned (0 = keep forever)
+db = "data/gateway.db"  # ID mappings and message records
+keep_days = 30        # message records older than this are pruned (0 = keep forever)
 
 [onebot_v11]
 enabled = true
-# 反向 WS：协议端作为客户端连接 AstrBot / NoneBot
+# Reverse WebSocket: the gateway connects to the bot framework. Each entry is a URL, or a table
+# with its own token: { url = "ws://127.0.0.1:8080/onebot/v11/ws", access_token = "other-token" }
 reverse_ws = ["ws://127.0.0.1:6199/ws"]
-access_token = ""
+access_token = ""     # default token for entries that don't set their own
 heartbeat_interval = 5000   # ms, <= 0 disables heartbeat
 message_format = "array"    # array | string (CQ code)
-event_max_age = 60          # s, events queued longer than this while disconnected are dropped (0 = keep all)
-reconnect_max = 30          # s, max backoff between reverse WS reconnects
+event_max_age = 60    # s, events queued longer than this while disconnected are dropped (0 = keep all)
+reconnect_max = 30    # s, max backoff between reverse WS reconnects
 
 [satori]
-enabled = false          # P3 阶段，接 Koishi
+enabled = false       # not implemented yet
 host = "127.0.0.1"
 port = 5140
 token = ""
