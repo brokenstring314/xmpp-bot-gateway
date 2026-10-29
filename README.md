@@ -1,5 +1,7 @@
 # xmpp-bot-gateway
 
+[简体中文](README.zh-CN.md)
+
 A standalone gateway that logs in to an XMPP account and exposes its direct chats and group chats (MUC) over the OneBot v11 protocol, so OneBot v11 bot frameworks can run on XMPP.
 
 ```
@@ -70,4 +72,10 @@ python3 -u tests/e2e_mam.py      # offline catch-up via MAM
 
 ## Status
 
-Early development. See [docs/ROADMAP.md](docs/ROADMAP.md).
+Early development. See [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/TESTING.md](docs/TESTING.md).
+
+## License
+
+[Apache License 2.0](LICENSE).
+
+The optional `[omemo]` extra installs `slixmpp-omemo` and `oldmemo`, which are licensed under AGPL-3.0. They keep their own license: if you distribute the gateway together with them, or run it with them as a network service, you also need to meet the AGPL-3.0 terms.

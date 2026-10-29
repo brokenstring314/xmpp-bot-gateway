@@ -1,45 +1,47 @@
-# 测试说明
+# Testing
 
-## 自动测试（CI 每次推送都会跑）
+[简体中文](TESTING.zh-CN.md)
+
+## Automated tests (run by CI on every push)
 
 ```bash
-bash tests/prosody/run.sh &          # 本地 Prosody（127.0.0.1:15222）
-python -m mypy                       # 类型检查
+bash tests/prosody/run.sh &          # local Prosody (127.0.0.1:15222)
+python -m mypy                       # type check
 python -m pytest -q tests/test_cq.py tests/test_props.py
 for t in p0 media reply mam omemo_resync redteam chaos; do python -u tests/e2e_$t.py; done
 # with coverage: replace `python -u` by `python -u tests/cov_run.py`, then `coverage combine && coverage report`
 ```
 
-## 24 小时挂机（tests/soak.py）
+## 24-hour soak (`tests/soak.py`)
 
-网关作为子进程运行，脚本里的模拟机器人框架把每条私聊原样回显，测试账号每分钟发一次 ping（明文与 OMEMO 交替），记录往返时间、丢失、网关内存、打开文件数、数据库大小和重连次数。
+The gateway runs as a subprocess. A mock bot app inside the script echoes every direct message, and a test account sends a ping every minute (alternating plaintext and OMEMO). The script records round-trip time, losses, gateway memory, open files, database size and reconnects.
 
-要求：Linux、WSL2 或 macOS，Python 3.11+，能连外网；机器在测试期间不能睡眠。
+Requirements: Linux, WSL2 or macOS, Python 3.11+, outbound internet access; the machine must not sleep during the test.
 
 ```bash
 git clone https://github.com/brokenstring314/xmpp-bot-gateway.git
 cd xmpp-bot-gateway
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[omemo]" tomli-w
-# 把 soak.toml（两个测试账号）放到仓库根目录
+# put soak.toml (two test accounts) in the repository root
 python3 tests/soak.py -c soak.toml --hours 24
 ```
 
-结束后（或中途 Ctrl-C）把 `soak-<时间>/` 目录打包发回：`report.md` 是摘要，`pings.csv`、`samples.csv`、`gateway.log` 是明细。`report.md` 每 5 分钟刷新一次，中途断掉也有结果。
+Results go to `soak-<time>/`: `report.md` is the summary, `pings.csv`, `samples.csv` and `gateway.log` hold the details. `report.md` is refreshed every 5 minutes, so an interrupted run still leaves results.
 
-## 真机客户端回归（Conversations / Gajim）
+## Manual client checklist (Conversations / Gajim)
 
-前提：网关和 AstrBot 在跑，你的账号已加机器人好友。每项看机器人反应，不对就截图。
+Prerequisites: the gateway and a bot framework are running, and your account has the bot as a contact. Check the bot's reaction for each item and take a screenshot when something is wrong.
 
-| # | 操作 | 预期 |
+| # | Action | Expected |
 |---|---|---|
-| 1 | 明文发 `!help` | 收到帮助文本 |
-| 2 | 打开 OMEMO 再发 `!help` | 回复带锁（加密） |
-| 3 | 关掉 OMEMO 再发 `!help` | 回复不带锁 |
-| 4 | 发一张图片（OMEMO 开/关各一次） | 机器人日志收到图片；加密时为本地文件 |
-| 5 | 发一段语音 | 收到语音消息段 |
-| 6 | 长按机器人的一条回复，选「回复」再发 `!help` | 正常回复，引用不被当成命令内容 |
-| 7 | 发一条消息后立刻撤回 | 机器人侧收到撤回通知 |
-| 8 | 建群并邀请机器人 | 机器人自动进群 |
-| 9 | 群里 `@机器人 !help` | 群里回复，带 @ |
-| 10 | 让网关停 1 分钟，期间发 `!help`，再启动 | 启动后补收并回复 |
+| 1 | Send `!help` in plaintext | Help text arrives |
+| 2 | Turn OMEMO on, send `!help` | Reply is encrypted (lock shown) |
+| 3 | Turn OMEMO off, send `!help` | Reply is not encrypted |
+| 4 | Send an image (once with OMEMO on, once off) | Bot receives the image; a local file when encrypted |
+| 5 | Send a voice message | Bot receives a record segment |
+| 6 | Reply to one of the bot's messages with `!help` | Normal reply; the quote is not treated as part of the command |
+| 7 | Send a message and retract it right away | Bot receives a recall notice |
+| 8 | Create a group and invite the bot | Bot joins automatically |
+| 9 | In the group, `@bot !help` | Reply in the group, mentioning you |
+| 10 | Stop the gateway for a minute, send `!help`, start it again | Message is caught up and answered after start |

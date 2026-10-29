@@ -3,6 +3,8 @@ name = "xmpp-bot-gateway"
 version = "0.0.1"
 description = "XMPP gateway exposing direct and group chats over the OneBot v11 protocol"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
   "slixmpp>=1.8",

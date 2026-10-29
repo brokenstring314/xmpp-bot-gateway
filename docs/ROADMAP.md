@@ -1,32 +1,29 @@
 # Roadmap
 
-- **P0 打通**（已完成，见 tests/e2e_p0.py 与 tests/e2e_astrbot.py）：明文单聊 + MUC 群聊，OneBot v11 反向 WS、心跳/生命周期、常用动作、XEP-0424 撤回自己的消息、OOB 链接；Conversations 实机明文单聊已验证，Gajim 待测
-- **P1 加密**（进行中）：✅ OMEMO 单聊收发（slixmpp-omemo；加密回复使用 `eu.siacs.conversations.axolotl`）、✅ BTBV / 手动信任、✅ 本地与公网 e2e。待做：`urn:xmpp:omemo:2` 加密发送（依赖 SCE）、密钥文件加密存储；✅ 桌面客户端实机加密互通已验证
-- **P2 富消息**（已完成）：✅ 媒体收发（base64/file/http 来源，XEP-0363 上传 + XEP-0066 OOB；OMEMO 会话用 XEP-0454 aesgcm 加密上传/解密下载；e2e_media 本地与公网 10/10）；✅ 回复（XEP-0461 + XEP-0428 回退引用，双向，单聊/群聊）；✅ 自动送达回执（XEP-0184）；✅ @ 提及（昵称前缀 + XEP-0372 引用，双向）；✅ 撤回（XEP-0424：撤回自己的消息；对方撤回推送 friend_recall / group_recall）；✅ MAM 离线补拉（XEP-0313，单聊 + 群聊，去重、保留原始时间）；✅ 反向 WS 重连时补发未送达事件。P2 完成
-- **第一阶段（P0–P2）已完成**；P3/P4 暂缓，先做质量阶段
-- **质量阶段**（进行中）：
-  - 已完成：静态扫描（ruff/bandit/pip-audit 无高危）；人工审计修复——入站媒体 SSRF（只许公网地址、连接时复查防 DNS rebinding、不跟随重定向）、分块下载截断 bug、媒体目录总量上限、群邀请默认只信任花名册/admins、伪造「群」消息（未加入房间）、MAM 结果来源校验、每发送者限流、超长正文截断、出站本地文件（拒绝 /dev/zero 等非普通文件、可限目录、防 ../ 和符号链接）、base64 先限长再解码、扩展名净化、后台任务异常不再静默；红队测试 e2e_redteam 14/14；属性/模糊测试 test_props；故障注入/压测 e2e_chaos 5/5（应用断线排队按序补发、服务器重启后重连重进群、入站 300 条按序 62 条/s、出站 200 条）；SQLite 改 WAL（入站吞吐约 3 倍）、消息记录按 storage.keep_days 清理；同一数据库单实例锁（防两个实例共用账号/OMEMO 存储）；GitHub Actions CI（失败时自动开 issue 附日志）；公网实测矩阵：yax.im、jabber.vg、chat.between-us.online、lain.rocks 两两互发，单聊 / 邀请入群 / 群聊 / 媒体 / OMEMO 全部通过（xmpp.party 已 DNS 失效，剔除）
-  - 第二轮（2026-10-19）：mypy 全量通过并加入 CI（修了消息段类型漏掉 record/video 等 19 处）；OMEMO 会话不同步时不再永久丢消息——检测到无法解密会重建会话并加密提示对方重发（e2e_omemo_resync 8/8：首次接触、重复投递不重复解密、会话丢失后自动恢复）；重复到达的加密消息在解密前去重；心跳任务异常不再报 "never retrieved"；单实例锁支持 Windows；24h 挂机脚本 tests/soak.py 与真机回归清单 docs/TESTING.md
-  - 第三轮（2026-10-26）：e2e_omemo_resync 扩到 14/14（新增会话错乱——棘轮状态与对方不一致、对方重装客户端换新设备与新身份密钥）；按项目依赖单独建环境跑 pip-audit 无已知漏洞；e2e 全套覆盖率 89%；修复停止时的竞态：stop() 现在先停收消息与补拉、等连接真正关闭再关数据库，关闭途中到达的消息留给下次 MAM 补拉（CI 上 e2e_mam 偶发丢第一条即此原因）（tests/cov_run.py，client 89%、OneBot 服务端 88%、OMEMO 96%）
-  - 24h 挂机（2026-10-26～27，Debian 13 / Python 3.13.5，两个公网服务器账号，OMEMO 与明文交替每分钟一条）：1440 条回了 1435 条，丢的 5 条都落在测试端自己重连的两个时间窗内；网关全程 1 个 XMPP 会话、0 错误；RSS 84.9→86.8 MB、打开文件 16→16；数据库+WAL 首 4 小时到约 4 MB（WAL 填满）后 20 小时只涨 0.75 MB；往返中位 0.59s、p95 0.83s
-  - 真机回归（2026-10-28）：因测试服务器磁盘不足，未部署 AstrBot，完整 10 项清单未执行，暂不再做。已在真实客户端验证过的：Conversations 明文与 OMEMO 单聊 !help、桌面客户端 OMEMO 互通
-  - 待真机验证（自动化测试已通过，真实客户端未点过）：语音消息、对方撤回通知、群里 @ 机器人回复、停机后 MAM 补收；Gajim 全部项目
-  - 待做：定期复查依赖漏洞（下次 2026-11 底）
-- **P3 多协议**（暂缓）：Satori 接 Koishi；OneBot v11 正向 WS / HTTP API；OneBot 12 / Milky 视需求
-- **P4**（暂缓）：OMEMO 群聊（非匿名 members-only 房间）、多账号、WebUI、Docker 发布
+[简体中文](ROADMAP.zh-CN.md)
 
-## 消息段映射
+- **P0 Basics** (done; see `tests/e2e_p0.py` and `tests/e2e_astrbot.py`): plaintext direct chats and MUC group chats, OneBot v11 reverse WebSocket, heartbeat and lifecycle events, common actions, retracting the bot's own messages (XEP-0424), OOB links. Plaintext direct chat verified on a real Conversations client.
+- **P1 Encryption** (in progress): ✅ OMEMO direct chats, send and receive (encrypted replies use `eu.siacs.conversations.axolotl`); ✅ blind trust before verification and manual trust; ✅ local and public-server end-to-end tests; ✅ encrypted interop verified on real mobile and desktop clients. To do: encrypted sending with `urn:xmpp:omemo:2` (needs SCE), encrypted key storage.
+- **P2 Rich messages** (done): ✅ media send and receive (base64 / file / http sources, XEP-0363 upload + XEP-0066 OOB; XEP-0454 aesgcm encrypted upload and decrypted download in OMEMO chats); ✅ replies (XEP-0461 with XEP-0428 fallback quote, both directions, direct and group); ✅ automatic delivery receipts (XEP-0184); ✅ mentions (nick prefix + XEP-0372 reference, both directions); ✅ retraction (XEP-0424 for own messages; contacts' retractions arrive as `friend_recall` / `group_recall`); ✅ offline catch-up via MAM (XEP-0313, direct and group, deduplicated, original timestamps); ✅ undelivered events re-sent after the reverse WebSocket reconnects.
+- **Phase one (P0–P2) is complete.** P3/P4 are on hold while the quality phase runs.
+- **Quality phase** (in progress):
+  - Round 1: static analysis (ruff, bandit, pip-audit: no high-severity findings). Manual audit fixes: SSRF protection for incoming media (public addresses only, re-checked at connect time against DNS rebinding, no redirects), a chunked-download truncation bug, a total size cap for the media directory, room invitations trusted only from roster contacts and admins by default, forged group messages from rooms the bot has not joined, MAM result origin checks, per-sender rate limit, truncation of overlong bodies, outgoing local files (non-regular files such as `/dev/zero` rejected, optional directory allow-list, `../` and symlink escapes blocked), base64 length checked before decoding, sanitized file extensions, background task errors no longer silent. Red-team test `e2e_redteam` 14/14; property and fuzz tests `test_props`; fault injection and load test `e2e_chaos` 5/5 (bot app outage queues and replays in order, reconnect and room rejoin after a server restart, 300 inbound messages in order at 62 msg/s, 200 outbound). SQLite in WAL mode (about 3× inbound throughput); message records pruned after `storage.keep_days`; single-instance lock per database (stops two instances sharing one account and OMEMO store); GitHub Actions CI that opens an issue with the log on failure. Public-server matrix: yax.im, jabber.vg, chat.between-us.online and lain.rocks messaging each other; direct chat, invite into a room, group chat, media and OMEMO all pass.
+  - Round 2 (2026-10-19): mypy clean and enforced in CI (fixed 19 issues, including message segment types missing `record` / `video`). OMEMO session desync no longer loses messages for good: when a message cannot be decrypted the session is rebuilt and the sender gets an encrypted notice to resend (`e2e_omemo_resync` 8/8: first contact, duplicate delivery not decrypted twice, recovery after a lost session). Duplicate encrypted messages are dropped before decryption. Heartbeat task errors no longer show as "never retrieved". Single-instance lock works on Windows. 24-hour soak script `tests/soak.py` and manual client checklist in [TESTING.md](TESTING.md).
+  - Round 3 (2026-10-26): `e2e_omemo_resync` 14/14 (adds a desynced ratchet and a contact who reinstalled their client with a new device and identity key). pip-audit of the project's own dependencies in a clean environment: no known vulnerabilities. End-to-end coverage 89% (`tests/cov_run.py`; client 89%, OneBot server 88%, OMEMO 96%). Fixed a shutdown race: `stop()` now stops message handling and catch-up first, waits for the stream to close, then closes the database; messages arriving during shutdown are left for the next MAM catch-up (this was the cause of an occasional lost first message in `e2e_mam` on CI).
+  - 24-hour soak (2026-10-26 to 27, Debian 13 / Python 3.13.5, accounts on two public servers, one message a minute alternating OMEMO and plaintext): 1435 of 1440 answered; the 5 lost all fell in two windows when the test client itself reconnected. The gateway kept one XMPP session with 0 errors; RSS 84.9 → 86.8 MB, open files 16 → 16; database plus WAL reached about 4 MB in the first 4 hours (WAL full), then grew only 0.75 MB over the remaining 20. Round trip median 0.59 s, p95 0.83 s.
+  - Manual client regression (2026-10-28): the full 10-item checklist was not run. Verified on real clients so far: plaintext and OMEMO direct chat commands on Conversations, OMEMO interop with a desktop client.
+  - Pending real-client checks (automated tests pass, not yet tried on a real client): voice messages, recall notices for a contact's retraction, mentioned replies in a group, MAM catch-up after a gateway outage; all items on Gajim.
+  - To do: recheck dependency vulnerabilities periodically (next: end of November 2026).
+- **P3 More protocols** (on hold): Satori; OneBot v11 forward WebSocket and HTTP API; OneBot 12 as needed.
+- **P4** (on hold): OMEMO in group chats (non-anonymous members-only rooms), multiple accounts, web UI, Docker images.
+
+## Segment mapping
 
 | OneBot v11 | XMPP |
 |---|---|
 | text | `<body>` |
-| image / file | HTTP Upload + OOB |
+| image / record / video / file | HTTP Upload + OOB |
 | reply | XEP-0461 |
-| at | MUC 昵称 / XEP-0372 |
+| at | MUC nick / XEP-0372 |
 | delete_msg | XEP-0424 |
-| 好友 / 群列表 | Roster / MUC 书签 (XEP-0402) |
-
-## 参考
-- toughworm/Openclaw-XMPP-Plugin：功能清单、OMEMO 流程
-- haydenwu/xmpp-onebot：OneBot 12 动作映射
-- NapCat、lc-cn/onebots：配置与管理体验
+| friend / group lists | Roster / MUC bookmarks (XEP-0402) |
