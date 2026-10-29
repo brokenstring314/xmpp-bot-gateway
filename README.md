@@ -69,6 +69,7 @@ In your bot framework, add a OneBot v11 adapter that listens for a reverse WebSo
 tests/prosody/run.sh &           # local Prosody on 127.0.0.1:15222 with random test accounts
 python3 -m pytest -q tests/test_cq.py tests/test_props.py   # unit and property-based tests
 python3 -u tests/e2e_redteam.py  # forged, malformed and abusive stanzas from a hostile client
+FRAMEWORK=astrbot python3 -u tests/e2e_redteam_chain.py  # hostile user against a real bot framework (see the file for setup)
 python3 -u tests/e2e_chaos.py    # bot app outage, server restart, bursts in both directions (restarts Prosody)
 python3 -u tests/e2e_p0.py       # end-to-end against a mock OneBot v11 app
 python3 -u tests/e2e_media.py    # media upload/download, including OMEMO-encrypted files

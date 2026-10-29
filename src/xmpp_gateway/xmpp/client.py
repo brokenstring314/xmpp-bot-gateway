@@ -26,6 +26,8 @@ NS_REF = "urn:xmpp:reference:0"
 NS_FALLBACK = "urn:xmpp:fallback:0"
 NS_RETRACT = "urn:xmpp:message-retract:1"
 NS_OOB = "jabber:x:oob"
+NS_OCC = "urn:xmpp:occupant-id:0"
+OCC_PREFIX = "occupant-id:"
 
 
 def _log_failure(t: asyncio.Future) -> None:
@@ -73,6 +75,10 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         self.add_event_handler("connection_failed", self._on_disconnected)
         self.add_event_handler("message", self._on_message)
         self.add_event_handler("groupchat_message", self._on_groupchat)
+        self.add_event_handler("groupchat_presence", self._on_muc_presence)
+        self._occ_rooms: set[str] = set()                 # 声明支持 XEP-0421 的房间（只有这些房间的 occupant-id 可信）
+        self._occ: dict[tuple[str, str], str] = {}       # (room, nick) -> occupant-id
+        self._nick_rooms_warned: set[str] = set()
         self.add_event_handler("groupchat_invite", self._on_invite)          # XEP-0045 mediated
         self.add_event_handler("groupchat_direct_invite", self._on_invite)   # XEP-0249 direct
 
@@ -239,7 +245,49 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             form = self.plugin["xep_0004"].make_form(ftype="submit")
             await muc.set_room_config(room, form)
             log.info("created instant room %s", room)
+        try:
+            info = await self.plugin["xep_0030"].get_info(jid=slixmpp.JID(room), timeout=10)
+            if NS_OCC in info["disco_info"]["features"]:
+                self._occ_rooms.add(room)
+            else:
+                self._occ_rooms.discard(room)
+        except Exception as e:  # noqa: BLE001
+            log.debug("disco#info for %s failed: %r", room, e)
         log.info("joined room %s", room)
+
+    # ---------- 房间成员身份 ----------
+    def _on_muc_presence(self, pres) -> None:
+        room, nick = pres["from"].bare, pres["from"].resource
+        if not nick:
+            return
+        if pres["type"] == "unavailable":
+            self._occ.pop((room, nick), None)
+            return
+        el = pres.xml.find(f"{{{NS_OCC}}}occupant-id")
+        if room in self._occ_rooms and el is not None and el.get("id"):
+            self._occ[(room, nick)] = el.get("id")
+
+    def occupant_ident(self, room: str, nick: str, stanza=None) -> str:
+        """房间成员的稳定身份（映射成 OneBot user_id）：
+        1. 能看到真实 JID（非匿名房间或 bot 是主持人）→ bare JID，跨房间、跨私聊一致；
+        2. 房间声明支持 XEP-0421 → 服务器给的 occupant-id（按真实 JID 计算，别人换成同一昵称也拿不到）；
+        3. 否则只能用 room/nick：昵称可以被别人在原主人离开后占用，管理员权限不要绑定在这种身份上。"""
+        real = self.plugin["xep_0045"].get_jid_property(slixmpp.JID(room), nick, "jid")
+        if real:
+            return real.bare
+        if room in self._occ_rooms:
+            occ = None
+            if stanza is not None:
+                el = stanza.xml.find(f"{{{NS_OCC}}}occupant-id")
+                occ = el.get("id") if el is not None else None
+            occ = occ or self._occ.get((room, nick))
+            if occ:
+                return f"{OCC_PREFIX}{room}:{occ}"
+        if room not in self._nick_rooms_warned:
+            self._nick_rooms_warned.add(room)
+            log.warning("room %s hides real JIDs and has no occupant-id: member identities are nickname-based "
+                        "and a nickname can be taken over by someone else", room)
+        return f"{room}/{nick}"
 
     # ---------- 入站 ----------
     @staticmethod
@@ -408,9 +456,16 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             uri = Path(path).resolve().as_uri()
             return [Segment(kind, {"file": uri, "url": uri})]
         oob = msg["oob"]["url"] if msg.xml.find("{jabber:x:oob}x") is not None else ""
-        if url.startswith(("http://", "https://")) and oob == url and kind:
+        if url.startswith(("http://", "https://")) and oob == url and kind and await self._safe_link(url):
             return [Segment(kind, {"file": url, "url": url})]
         return None
+
+    async def _safe_link(self, url: str) -> bool:
+        """入站媒体链接会被 bot 框架（及其插件）去下载：内网/本机地址的链接只当文本传，防止借框架做 SSRF。"""
+        if self.media_cfg.allow_private_hosts or await media.is_public_url(url):
+            return True
+        log.warning("media link to a non-public address passed on as text: %s", url)
+        return False
 
     async def _fetch_aesgcm(self, url: str) -> str:
         src, frag = media.aesgcm_split(url, self.media_cfg.aesgcm_insecure_http)
@@ -456,10 +511,9 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         retract = msg.xml.find(f"{{{NS_RETRACT}}}retract")
         if retract is not None and retract.get("id") and msg["mucnick"] and msg["mucnick"] != self.cfg.nick:
             room, nick = msg["from"].bare, msg["mucnick"]
-            real = self.plugin["xep_0045"].get_jid_property(room, nick, "jid")
             return await self._emit(RecallEvent(
                 scene=Scene.GROUP, self_jid=self.boundjid.bare,
-                sender_jid=real.bare if real else str(msg["from"]), room_jid=room,
+                sender_jid=self.occupant_ident(room, nick, msg), room_jid=room,
                 target_id=retract.get("id"), time=archived_ts or time.time(),
                 archived=archived_ts is not None), room)
         if msg["mucnick"] == self.cfg.nick or not msg["body"] or not msg["mucnick"]:
@@ -467,8 +521,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         if archived_ts is None and msg.xml.find(NS_DELAY) is not None:
             return 0  # 加入时的历史回放：由 MAM 补拉统一处理
         room, nick = msg["from"].bare, msg["mucnick"]
-        real = self.plugin["xep_0045"].get_jid_property(room, nick, "jid")
-        sender = real.bare if real else str(msg["from"])  # 非匿名房间用真实 JID，跨房间 ID 一致
+        sender = self.occupant_ident(room, nick, msg)
         body, reply = self._take_reply(msg, msg["body"])
         body = self._clip(body, sender)
         segments: list[Segment] = [reply] if reply else []
@@ -486,7 +539,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         oob = msg["oob"]["url"] if msg.xml.find("{jabber:x:oob}x") is not None else ""
         url = body.strip()
         kind = media.kind_of(url) if url else None
-        if url and url == oob and url.startswith(("http://", "https://")) and kind:
+        if url and url == oob and url.startswith(("http://", "https://")) and kind and await self._safe_link(url):
             segments.append(Segment(kind, {"file": url, "url": url}))
         else:
             segments.append(Segment("text", {"text": body}))
@@ -624,9 +677,12 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         msg.send()
 
     def nick_for(self, room: str, user: str) -> str | None:
-        """把用户身份（真实 JID 或 room/nick）换成房间内昵称。"""
+        """把用户身份（真实 JID、occupant-id 或 room/nick）换成房间内当前昵称。"""
         if user.startswith(room + "/"):
             return user.split("/", 1)[1]
+        if user.startswith(f"{OCC_PREFIX}{room}:"):
+            occ = user[len(f"{OCC_PREFIX}{room}:"):]
+            return next((n for (r, n), o in self._occ.items() if r == room and o == occ), None)
         muc = self.plugin["xep_0045"]
         room_j = slixmpp.JID(room)
         for nick in muc.get_roster(room_j) or []:

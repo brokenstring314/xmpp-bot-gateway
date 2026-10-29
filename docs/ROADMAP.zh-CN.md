@@ -13,7 +13,8 @@
   - 24h 挂机（2026-10-26～27，Debian 13 / Python 3.13.5，两个公网服务器账号，OMEMO 与明文交替每分钟一条）：1440 条回了 1435 条，丢的 5 条都落在测试端自己重连的两个时间窗内；网关全程 1 个 XMPP 会话、0 错误；RSS 84.9→86.8 MB、打开文件 16→16；数据库+WAL 首 4 小时到约 4 MB（WAL 填满）后 20 小时只涨 0.75 MB；往返中位 0.59s、p95 0.83s
   - 真机回归（2026-10-28）：因测试服务器磁盘不足，未部署 AstrBot，完整 10 项清单未执行，暂不再做。已在真实客户端验证过的：Conversations 明文与 OMEMO 单聊 !help、桌面客户端 OMEMO 互通
   - 待真机验证（自动化测试已通过，真实客户端未点过）：语音消息、对方撤回通知、群里 @ 机器人回复、停机后 MAM 补收；Gajim 全部项目
-  - 框架兼容（2026-10-29）：AstrBot 4.29.3、LangBot 4.11.2、NoneBot2 2.5.0 单聊和群聊往返均通过（tests/e2e_framework.py）。优先级：第一梯队 AstrBot、LangBot、NoneBot2；第二梯队 OpenClaw、Hermes Agent（通过社区 OneBot v11 插件）和 Koishi（需要 Satori）。
+  - 框架兼容（2026-10-29）：AstrBot 4.29.3、LangBot 4.11.2、NoneBot2 2.5.0 单聊和群聊往返均通过（tests/e2e_framework.py）。优先级：第一梯队 AstrBot、LangBot、NoneBot2；第二梯队 OpenClaw、Hermes Agent（通过社区 OneBot v11 插件）和 Koishi（需要 Satori）；第二梯队暂缓。
+  - 第四轮：第一梯队框架整链红队测试（2026-10-29）：发现并修复两个问题。（1）在隐藏真实 JID 的房间里，成员的 user_id 来自「房间/昵称」，原成员离开后任何人改用同一昵称就拿到同一个 user_id（以及框架绑定在它上面的权限或用户状态）。现在优先用可见的真实 JID，否则用服务器给的 XEP-0421 occupant-id（仅当房间声明支持时才信任；客户端自带的 id 会被服务器剥掉）；按昵称识别只作最后兜底并记录警告。发给这类成员的私信会发到其当前昵称。（2）入站媒体链接即使指向内网或本机地址，也会作为 image/record/video 段交给框架，框架或插件去下载时就成了 SSRF 跳板；现在这类链接只作为纯文本传给框架。e2e_redteam 19/19（旧代码上有 3 项失败）。新增 tests/e2e_redteam_chain.py，连真实框架测试（攻击者在单聊、冒用管理员昵称的群、昵称被抢占后的匿名房间里发管理员指令；管理员指令仍可用；内网媒体链接金丝雀；CQ 码注入；刷屏）：AstrBot 4.29.3 11/11，NoneBot2 2.5.0 11/11，LangBot 4.11.2 6/6（没有内置的管理员指令，跳过权限项）。
   - 待做：定期复查依赖漏洞（下次 2026-11 底）
 - **P3 多协议**（暂缓）：Satori 接 Koishi；OneBot v11 正向 WS / HTTP API；OneBot 12 / Milky 视需求
 - **P4**（暂缓）：OMEMO 群聊（非匿名 members-only 房间）、多账号、WebUI、Docker 发布

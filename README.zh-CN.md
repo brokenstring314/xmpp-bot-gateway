@@ -69,6 +69,7 @@ xmpp-gateway -c config.toml
 tests/prosody/run.sh &           # 本地 Prosody，127.0.0.1:15222，随机测试账号
 python3 -m pytest -q tests/test_cq.py tests/test_props.py   # 单元测试和属性测试
 python3 -u tests/e2e_redteam.py  # 恶意客户端发来的伪造、畸形和滥用节
+FRAMEWORK=astrbot python3 -u tests/e2e_redteam_chain.py  # 恶意用户攻击真实 bot 框架（准备步骤见文件头）
 python3 -u tests/e2e_chaos.py    # 机器人应用断线、服务器重启、双向突发（会重启 Prosody）
 python3 -u tests/e2e_p0.py       # 对接模拟 OneBot v11 应用的端到端测试
 python3 -u tests/e2e_media.py    # 媒体上传/下载，包括 OMEMO 加密文件

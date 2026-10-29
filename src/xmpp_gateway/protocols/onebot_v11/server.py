@@ -274,6 +274,12 @@ class OneBotV11:
     async def _send(self, group: bool, target_num, message, auto_escape=False) -> dict:
         kind = "group" if group else "user"
         target = await self._jid(kind, target_num)
+        if not group and target.startswith("occupant-id:"):   # 匿名房间成员：发到其当前昵称（MUC 私信）
+            room_of = target[len("occupant-id:"):].rsplit(":", 1)[0]
+            nick = self.xmpp.nick_for(room_of, target)
+            if not nick:
+                raise ActionError(100, "that room member is not in the room now")
+            target = f"{room_of}/{nick}"
         segments = cq.normalize(message, bool(auto_escape))
         room = target if group else None
         if group and target not in self.xmpp.rooms():
@@ -417,7 +423,11 @@ class OneBotV11:
 
     async def a_get_stranger_info(self, p):
         jid = await self._jid("user", p.get("user_id"))
-        name = jid.split("/", 1)[1] if "/" in jid else jid.split("@")[0]
+        if jid.startswith("occupant-id:"):
+            room = jid[len("occupant-id:"):].rsplit(":", 1)[0]
+            name = self.xmpp.nick_for(room, jid) or "unknown"
+        else:
+            name = jid.split("/", 1)[1] if "/" in jid else jid.split("@")[0]
         return ok({"user_id": int(p["user_id"]), "nickname": name, "sex": "unknown", "age": 0})
 
     async def _group_info(self, room: str) -> dict:
@@ -445,8 +455,7 @@ class OneBotV11:
 
     async def _member(self, room: str, gid: int, nick: str) -> dict:
         muc = self.xmpp.plugin["xep_0045"]
-        real = muc.get_jid_property(room, nick, "jid")
-        ident = real.bare if real else f"{room}/{nick}"
+        ident = self.xmpp.occupant_ident(room, nick)
         aff = muc.get_jid_property(room, nick, "affiliation") or "none"
         return {"group_id": gid, "user_id": await self.idmap.to_int("user", ident), "nickname": nick,
                 "card": nick, "sex": "unknown", "age": 0, "area": "", "join_time": 0,

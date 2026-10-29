@@ -1,5 +1,6 @@
 """媒体工具：类型判断、XEP-0454（aesgcm://）加解密、OneBot 媒体来源解析。"""
 import base64
+import asyncio
 import hashlib
 import io
 import ipaddress
@@ -96,6 +97,22 @@ def check_public_url(url: str) -> None:
         return
     if not ip.is_global:
         raise ValueError(f"refusing non-public address {ip}")
+
+
+async def is_public_url(url: str, timeout: float = 5.0) -> bool:
+    """链接的主机是否只解析到公网地址（IP 字面量直接判断，域名做一次 DNS 解析；解析失败视为否）。"""
+    try:
+        check_public_url(url)
+        host = urlparse(url).hostname or ""
+        try:
+            ipaddress.ip_address(host)
+            return True
+        except ValueError:
+            pass
+        infos = await asyncio.wait_for(asyncio.get_running_loop().getaddrinfo(host, None), timeout)
+    except (ValueError, OSError, asyncio.TimeoutError):
+        return False
+    return bool(infos) and all(ipaddress.ip_address(str(i[4][0]).split("%")[0]).is_global for i in infos)
 
 
 class PublicResolver(AbstractResolver):

@@ -83,6 +83,7 @@ async def main():
     await asyncio.wait_for(mal.ready.wait(), 20)
     evil_room = f"evil-{secrets.token_hex(4)}@conference.test.local"
     await mal.plugin["xep_0045"].join_muc_wait(evil_room, "attacker", maxstanzas=0, timeout=15)
+    await mal.plugin["xep_0045"].set_room_config(evil_room, mal.plugin["xep_0004"].make_form(ftype="submit"))  # unlock
     mal.send_raw(f"<message to='{bot_jid}'><x xmlns='jabber:x:conference' jid='{evil_room}'/></message>")
     await asyncio.sleep(3)
     check("untrusted direct invite is ignored", evil_room not in x.rooms(), x.rooms())
@@ -94,6 +95,56 @@ async def main():
     ok = await until(lambda: evil_room in x.rooms(), 10)
     check("invite from an admin is accepted", ok, x.rooms())
     x.cfg.admins.clear()
+
+    # ---- identity spoofing in a room that hides real JIDs (mallory owns it; the bot is not a moderator) ----
+    gid = await x.idmap.to_int("group", evil_room)
+    await u.plugin["xep_0045"].join_muc_wait(evil_room, "boss", maxstanzas=0, timeout=15)
+    await asyncio.sleep(1)
+    k = len(app.events)
+    u.send_message(mto=evil_room, mbody="i-am-boss", mtype="groupchat")
+    e_boss = await until(lambda: next((e for e in app.events[k:] if e["raw_message"] == "i-am-boss"), None))
+    private_uid = await x.idmap.to_int("user", user_jid)
+    members = (await app.call("get_group_member_list", group_id=gid))["data"]
+    boss_member = next((m for m in members if m["nickname"] == "boss"), None)
+    check("anonymous-room member gets a stable occupant identity, not a nickname",
+          e_boss and boss_member and e_boss["user_id"] == boss_member["user_id"]
+          and (await x.idmap.to_str("user", e_boss["user_id"]) or "").startswith("occupant-id:"),
+          (e_boss, boss_member))
+    k = len(u.inbox)
+    r = await app.call("send_private_msg", user_id=e_boss and e_boss["user_id"], message="pm-to-boss")
+    got = await until(lambda: u.got(lambda m: m["body"] == "pm-to-boss", k), 8)
+    check("private message to an occupant identity reaches that person", r["status"] == "ok" and got, r)
+    u.plugin["xep_0045"].leave_muc(evil_room, "boss")
+    await asyncio.sleep(1.5)
+    mal.send_presence(pto=f"{evil_room}/boss")          # take over the nickname
+    await asyncio.sleep(1.5)
+    k = len(app.events)
+    mal.send_message(mto=evil_room, mbody="i-am-boss-too", mtype="groupchat")
+    e_fake = await until(lambda: next((e for e in app.events[k:] if e["raw_message"] == "i-am-boss-too"), None))
+    check("taking over a nickname does not take over the user_id",
+          e_boss and e_fake and e_fake["user_id"] != e_boss["user_id"] and e_fake["user_id"] != private_uid,
+          (e_boss and e_boss["user_id"], e_fake and e_fake["user_id"]))
+    k = len(app.events)
+    mal.send_message(mto=evil_room, mbody="forged-occupant", mtype="groupchat")   # client-supplied occupant-id is stripped
+    raw(f"<message to='{evil_room}' type='groupchat'><body>forged-occ</body>"
+        f"<occupant-id xmlns='urn:xmpp:occupant-id:0' id='x'/></message>")
+    await asyncio.sleep(2)
+    forged = [e for e in app.events[k:] if e["raw_message"] == "forged-occ"]
+    check("a client-supplied occupant-id is not trusted",
+          all(e["user_id"] != (e_boss or {}).get("user_id") for e in forged), forged)
+
+    # ---- media links to private addresses must not reach the bot framework as images ----
+    link = f"http://127.0.0.1:{BAIT}/cat.png"
+    k = len(app.events)
+    for to, typ in ((bot_jid, "chat"), (evil_room, "groupchat")):
+        m = mal.make_message(mto=to, mbody=link, mtype=typ)
+        m["oob"]["url"] = link
+        m.send()
+    evs = await until(lambda: [e for e in app.events[k:] if link in e["raw_message"]] if
+                      len([e for e in app.events[k:] if link in e["raw_message"]]) >= 2 else None, 10) or []
+    check("private-address media links stay text (no SSRF through the bot framework)",
+          len(evs) == 2 and all(seg["type"] == "text" for e in evs for seg in e["message"]),
+          [e["message"] for e in evs])
 
     # ---- forged group / MAM / carbons ----
     k = len(app.events)
