@@ -161,7 +161,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         floor = float(await self.idmap.get_state(f"mam:{key}:floor") or 0)
         # 留 30s 重叠（靠去重消化），但不早于首次运行时间
         since = max(float(ck) - 30, floor, now - self.cfg.mam_max_age)
-        start = datetime.fromtimestamp(since, tz=timezone.utc)
+        start = datetime.fromtimestamp(int(since), tz=timezone.utc)   # 整秒：兼容只解析整秒的服务器
         mam = self.plugin["xep_0313"]
         n = 0
         async for res in mam.iterate(jid=slixmpp.JID(room) if room else None, start=start,
@@ -173,6 +173,8 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             inner = fwd["stanza"]
             stamp = fwd["delay"]["stamp"]
             ts = stamp.timestamp() if stamp else now
+            if ts < since:
+                continue   # 有的服务器（实测 Prosody 13）不认带小数秒的 start，会把更早的归档也返回
             if room:
                 if inner["type"] != "groupchat":
                     continue
@@ -238,7 +240,16 @@ class GatewayXMPP(slixmpp.ClientXMPP):
     async def join_room(self, room: str) -> None:
         muc = self.plugin["xep_0045"]
         # maxstanzas=0：不回放历史消息，避免把旧消息当新事件推给 bot
-        res = await muc.join_muc_wait(slixmpp.JID(room), self.cfg.nick, maxstanzas=0, timeout=self.cfg.join_timeout)
+        try:
+            res = await muc.join_muc_wait(slixmpp.JID(room), self.cfg.nick, maxstanzas=0,
+                                          timeout=self.cfg.join_timeout)
+        except BaseException:
+            # slixmpp 在发出加入请求时就把房间记为已加入；失败（超时/报错）后要撤销，否则
+            # rooms() 会把没进去的房间当成已加入：伪造的该房间群消息会被接受，发群消息也不会报错
+            jid = slixmpp.JID(room)
+            for table in (muc.rooms, muc.our_nicks):
+                table.get(None, {}).pop(jid, None)
+            raise
         pres = res[0] if isinstance(res, tuple) else res  # slixmpp>=1.8 返回 (presence, history)
         if 201 in pres["muc"]["status_codes"]:
             # 房间是本次新建的，处于锁定状态：提交默认配置，变为 instant room

@@ -11,6 +11,8 @@ from .core.bus import EventBus
 from .core.idmap import IdMap
 from .xmpp.client import GatewayXMPP
 
+log = logging.getLogger("xmpp_gateway")
+
 
 def _try_lock(fd: int) -> None:
     """非阻塞独占锁；已被占用时抛 OSError。Linux/macOS 用 flock，Windows 用 msvcrt。"""
@@ -50,6 +52,8 @@ class Gateway:
             from .protocols.onebot_v11.server import OneBotV11
             self.onebot = OneBotV11(self.cfg.onebot_v11, self.bus, self.idmap, self.xmpp)
             self._tasks.append(asyncio.create_task(self.onebot.run()))
+        if self.cfg.satori.enabled:
+            log.warning("[satori] enabled = true, but Satori is not implemented yet; ignoring it")
         self.xmpp.start()
 
     async def stop(self) -> None:

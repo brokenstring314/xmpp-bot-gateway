@@ -49,7 +49,7 @@ async def main():
     u["feature_mechanisms"].unencrypted_plain = True
     u.connect(host="127.0.0.1", port=15222)
     await asyncio.wait_for(u.ready.wait(), 20)
-    await until(lambda: gw.xmpp.online and app.ws and room in gw.xmpp.rooms(), 20)
+    await until(lambda: gw.xmpp.online and app.ws is not None and room in gw.xmpp.rooms(), 20)
     await settle(app)
 
     # ---- private: bot replies to the user's message ----

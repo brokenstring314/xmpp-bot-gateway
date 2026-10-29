@@ -1,18 +1,21 @@
--- 仅用于本地自动化测试的 Prosody 配置（无 TLS，监听 127.0.0.1）
+-- 仅用于本地自动化测试的 Prosody 配置（监听 127.0.0.1；TLS 可选，证书由 run.sh 生成的测试 CA 签发）
 -- 用法：tests/prosody/run.sh（会把 @RUN@ 替换成运行目录）
 data_path = "@RUN@/data"
 pidfile = "@RUN@/prosody.pid"
 log = { info = "@RUN@/prosody.log" }
 daemonize = false
 interfaces = { "127.0.0.1" }
-c2s_ports = { 15222 }
+c2s_ports = { 15222 }          -- 明文或 STARTTLS（不强制加密）
+c2s_direct_tls_ports = { 15223 }  -- XEP-0368 direct TLS
+c2s_direct_tls_ssl = { certificate = "@RUN@/certs/test.local.crt", key = "@RUN@/certs/test.local.key" }
 s2s_ports = {}
 c2s_require_encryption = false
 allow_unencrypted_plain_auth = true
 authentication = "internal_hashed"
 modules_enabled = { "roster", "saslauth", "disco", "carbons", "pep", "private", "blocklist",
-  "vcard_legacy", "version", "uptime", "time", "ping", "register", "mam", "smacks", "posix" }
-modules_disabled = { "s2s", "tls" }
+  "vcard_legacy", "version", "uptime", "time", "ping", "register", "mam", "smacks", "posix", "tls" }
+smacks_hibernation_time = 5   -- 测试进程常被直接结束：别让残留的休眠会话抢走发给 bot 的消息
+modules_disabled = { "s2s" }
 allow_registration = false
 -- XEP-0363 HTTP Upload (plain HTTP on 127.0.0.1, test only)
 http_ports = { 15280 }
@@ -20,6 +23,7 @@ http_interfaces = { "127.0.0.1" }
 https_ports = {}
 http_external_url = "http://127.0.0.1:15280/"
 VirtualHost "test.local"
+  ssl = { certificate = "@RUN@/certs/test.local.crt", key = "@RUN@/certs/test.local.key" }
   disco_items = { { "upload.test.local" } }
 Component "conference.test.local" "muc"
   modules_enabled = { "muc_mam" }

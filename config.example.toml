@@ -20,7 +20,7 @@ status = ""           # presence status text shown to contacts
 # Room invitations (XEP-0045 / XEP-0249): roster = only from roster contacts and admins (default);
 # all = from anyone; none = never join automatically
 accept_invites = "roster"
-admins = []           # trusted JIDs whose invitations are always accepted
+admins = []           # trusted JIDs whose invitations are accepted under "roster" (not under "none")
 rate_limit = 20       # max messages per sender per minute forwarded to the bot (0 = unlimited)
 max_body_chars = 10000  # longer incoming messages are truncated (0 = unlimited)
 mam_catchup = true    # fetch messages missed while offline from the server archive (MAM)

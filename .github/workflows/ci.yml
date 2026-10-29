@@ -28,6 +28,8 @@ jobs:
       - run: set -o pipefail; python -u tests/e2e_mam.py 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -u tests/e2e_omemo_resync.py 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -u tests/e2e_redteam.py 2>&1 | tee -a /tmp/ci.log
+      - run: set -o pipefail; python -u tests/e2e_config.py 2>&1 | tee -a /tmp/ci.log
+      - run: set -o pipefail; python -u tests/e2e_config_omemo.py 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -u tests/e2e_chaos.py 2>&1 | tee -a /tmp/ci.log
       - if: failure()
         run: tail -50 /tmp/prosody.log tests/prosody/run/prosody.log || true

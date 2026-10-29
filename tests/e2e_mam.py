@@ -131,7 +131,7 @@ async def main():
 
     gw = Gateway(path)
     await gw.start()
-    await until(lambda: gw.xmpp.online and app.ws and room in gw.xmpp.rooms(), 20)
+    await until(lambda: gw.xmpp.online and app.ws is not None and room in gw.xmpp.rooms(), 20)
     await asyncio.sleep(3)
     check("first run: old archive is not replayed", len(app.events) == 0, texts(app.events))
 

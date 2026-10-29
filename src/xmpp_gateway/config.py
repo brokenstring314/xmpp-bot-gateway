@@ -2,7 +2,7 @@
 import os
 import re
 import tomllib
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -17,12 +17,12 @@ class XmppCfg(Strict):
     password: str
     server: str = ""
     port: int = 5222
-    tls: str = "starttls"  # starttls | direct | none（none 仅限本地测试）
+    tls: Literal["starttls", "direct", "none"] = "starttls"  # starttls | direct | none（none 仅限本地测试）
     rooms: list[str] = []
     nick: str = "bot"
     # 收到群邀请时：roster = 只接受花名册联系人和 admins 的邀请；all = 接受任何人；none = 不自动加入
     accept_invites: str = "roster"
-    admins: list[str] = []       # 受信任的 JID（总是接受其群邀请）
+    admins: list[str] = []       # 受信任的 JID：accept_invites = "roster" 时也接受其群邀请
     rate_limit: int = 20         # 每个发送者每分钟最多推送的消息数，超出丢弃；0 不限
     max_body_chars: int = 10000  # 入站正文超过该长度时截断；0 不限
     mam_catchup: bool = True     # 上线/重连后用 MAM（XEP-0313）补拉离线期间的单聊与群聊消息
@@ -44,7 +44,7 @@ class XmppCfg(Strict):
 
 class OmemoCfg(Strict):
     enabled: bool = False
-    trust: str = "btbv"
+    trust: Literal["btbv", "manual"] = "btbv"
     store_dir: str = "data/omemo"
     # 收到无法解密的消息（会话不同步）时，重建会话后用加密消息提示对方重发；留空则只重建不提示
     resync_notice: str = ("I couldn't decrypt your last message because our encryption session was out of "
@@ -78,7 +78,7 @@ class OneBotV11Cfg(Strict):
     reverse_ws: list[ReverseWs] = []
     access_token: str = ""
     heartbeat_interval: int = 5000   # ms；<=0 关闭心跳
-    message_format: str = "array"    # array | string（CQ 码）
+    message_format: Literal["array", "string"] = "array"    # array | string（CQ 码）
     event_max_age: int = 60          # s；断线期间积压超过该时长的事件不再推送，0 不限
     reconnect_max: int = 30          # s；反向 WS 重连最大退避
 

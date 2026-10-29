@@ -74,7 +74,7 @@ async def main():
     await asyncio.wait_for(u.ready.wait(), 20)
     gw = Gateway(path)
     await gw.start()
-    await until(lambda: gw.xmpp.online and app.ws and room in gw.xmpp.rooms(), 20)
+    await until(lambda: gw.xmpp.online and app.ws is not None and room in gw.xmpp.rooms(), 20)
     await settle(app)
     await u.plugin["xep_0045"].join_muc_wait(room, "alice", maxstanzas=0, timeout=15)
 
