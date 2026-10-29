@@ -2,7 +2,7 @@
 
 [简体中文](ROADMAP.zh-CN.md)
 
-- **P0 Basics** (done; see `tests/e2e_p0.py` and `tests/e2e_astrbot.py`): plaintext direct chats and MUC group chats, OneBot v11 reverse WebSocket, heartbeat and lifecycle events, common actions, retracting the bot's own messages (XEP-0424), OOB links. Plaintext direct chat verified on a real Conversations client.
+- **P0 Basics** (done; see `tests/e2e_p0.py` and `tests/e2e_framework.py`): plaintext direct chats and MUC group chats, OneBot v11 reverse WebSocket, heartbeat and lifecycle events, common actions, retracting the bot's own messages (XEP-0424), OOB links. Plaintext direct chat verified on a real Conversations client.
 - **P1 Encryption** (in progress): ✅ OMEMO direct chats, send and receive (encrypted replies use `eu.siacs.conversations.axolotl`); ✅ blind trust before verification and manual trust; ✅ local and public-server end-to-end tests; ✅ encrypted interop verified on real mobile and desktop clients. To do: encrypted sending with `urn:xmpp:omemo:2` (needs SCE), encrypted key storage.
 - **P2 Rich messages** (done): ✅ media send and receive (base64 / file / http sources, XEP-0363 upload + XEP-0066 OOB; XEP-0454 aesgcm encrypted upload and decrypted download in OMEMO chats); ✅ replies (XEP-0461 with XEP-0428 fallback quote, both directions, direct and group); ✅ automatic delivery receipts (XEP-0184); ✅ mentions (nick prefix + XEP-0372 reference, both directions); ✅ retraction (XEP-0424 for own messages; contacts' retractions arrive as `friend_recall` / `group_recall`); ✅ offline catch-up via MAM (XEP-0313, direct and group, deduplicated, original timestamps); ✅ undelivered events re-sent after the reverse WebSocket reconnects.
 - **Phase one (P0–P2) is complete.** P3/P4 are on hold while the quality phase runs.
@@ -13,6 +13,7 @@
   - 24-hour soak (2026-10-26 to 27, Debian 13 / Python 3.13.5, accounts on two public servers, one message a minute alternating OMEMO and plaintext): 1435 of 1440 answered; the 5 lost all fell in two windows when the test client itself reconnected. The gateway kept one XMPP session with 0 errors; RSS 84.9 → 86.8 MB, open files 16 → 16; database plus WAL reached about 4 MB in the first 4 hours (WAL full), then grew only 0.75 MB over the remaining 20. Round trip median 0.59 s, p95 0.83 s.
   - Manual client regression (2026-10-28): the full 10-item checklist was not run. Verified on real clients so far: plaintext and OMEMO direct chat commands on Conversations, OMEMO interop with a desktop client.
   - Pending real-client checks (automated tests pass, not yet tried on a real client): voice messages, recall notices for a contact's retraction, mentioned replies in a group, MAM catch-up after a gateway outage; all items on Gajim.
+  - Framework compatibility (2026-10-29): direct and group round trips pass with AstrBot 4.29.3, LangBot 4.11.2 and NoneBot2 2.5.0 (`tests/e2e_framework.py`). Priority: tier 1 AstrBot, LangBot, NoneBot2; tier 2 OpenClaw, Hermes Agent (through community OneBot v11 plugins) and Koishi (needs Satori).
   - To do: recheck dependency vulnerabilities periodically (next: end of November 2026).
 - **P3 More protocols** (on hold): Satori; OneBot v11 forward WebSocket and HTTP API; OneBot 12 as needed.
 - **P4** (on hold): OMEMO in group chats (non-anonymous members-only rooms), multiple accounts, web UI, Docker images.

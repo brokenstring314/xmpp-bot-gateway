@@ -2,7 +2,7 @@
 
 [English](ROADMAP.md)
 
-- **P0 打通**（已完成，见 tests/e2e_p0.py 与 tests/e2e_astrbot.py）：明文单聊 + MUC 群聊，OneBot v11 反向 WS、心跳/生命周期、常用动作、XEP-0424 撤回自己的消息、OOB 链接；Conversations 实机明文单聊已验证，Gajim 待测
+- **P0 打通**（已完成，见 tests/e2e_p0.py 与 tests/e2e_framework.py）：明文单聊 + MUC 群聊，OneBot v11 反向 WS、心跳/生命周期、常用动作、XEP-0424 撤回自己的消息、OOB 链接；Conversations 实机明文单聊已验证，Gajim 待测
 - **P1 加密**（进行中）：✅ OMEMO 单聊收发（slixmpp-omemo；加密回复使用 `eu.siacs.conversations.axolotl`）、✅ BTBV / 手动信任、✅ 本地与公网 e2e。待做：`urn:xmpp:omemo:2` 加密发送（依赖 SCE）、密钥文件加密存储；✅ 桌面客户端实机加密互通已验证
 - **P2 富消息**（已完成）：✅ 媒体收发（base64/file/http 来源，XEP-0363 上传 + XEP-0066 OOB；OMEMO 会话用 XEP-0454 aesgcm 加密上传/解密下载；e2e_media 本地与公网 10/10）；✅ 回复（XEP-0461 + XEP-0428 回退引用，双向，单聊/群聊）；✅ 自动送达回执（XEP-0184）；✅ @ 提及（昵称前缀 + XEP-0372 引用，双向）；✅ 撤回（XEP-0424：撤回自己的消息；对方撤回推送 friend_recall / group_recall）；✅ MAM 离线补拉（XEP-0313，单聊 + 群聊，去重、保留原始时间）；✅ 反向 WS 重连时补发未送达事件。P2 完成
 - **第一阶段（P0–P2）已完成**；P3/P4 暂缓，先做质量阶段
@@ -13,6 +13,7 @@
   - 24h 挂机（2026-10-26～27，Debian 13 / Python 3.13.5，两个公网服务器账号，OMEMO 与明文交替每分钟一条）：1440 条回了 1435 条，丢的 5 条都落在测试端自己重连的两个时间窗内；网关全程 1 个 XMPP 会话、0 错误；RSS 84.9→86.8 MB、打开文件 16→16；数据库+WAL 首 4 小时到约 4 MB（WAL 填满）后 20 小时只涨 0.75 MB；往返中位 0.59s、p95 0.83s
   - 真机回归（2026-10-28）：因测试服务器磁盘不足，未部署 AstrBot，完整 10 项清单未执行，暂不再做。已在真实客户端验证过的：Conversations 明文与 OMEMO 单聊 !help、桌面客户端 OMEMO 互通
   - 待真机验证（自动化测试已通过，真实客户端未点过）：语音消息、对方撤回通知、群里 @ 机器人回复、停机后 MAM 补收；Gajim 全部项目
+  - 框架兼容（2026-10-29）：AstrBot 4.29.3、LangBot 4.11.2、NoneBot2 2.5.0 单聊和群聊往返均通过（tests/e2e_framework.py）。优先级：第一梯队 AstrBot、LangBot、NoneBot2；第二梯队 OpenClaw、Hermes Agent（通过社区 OneBot v11 插件）和 Koishi（需要 Satori）。
   - 待做：定期复查依赖漏洞（下次 2026-11 底）
 - **P3 多协议**（暂缓）：Satori 接 Koishi；OneBot v11 正向 WS / HTTP API；OneBot 12 / Milky 视需求
 - **P4**（暂缓）：OMEMO 群聊（非匿名 members-only 房间）、多账号、WebUI、Docker 发布

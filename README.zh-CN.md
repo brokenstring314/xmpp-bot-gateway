@@ -41,6 +41,18 @@ XMPP 客户端 ⇄ XMPP 服务器 ⇄ xmpp-bot-gateway ⇄ OneBot v11（反向 W
 
 不支持的动作返回 `retcode 1404`。失败的动作返回 `status: "failed"`，并在 `wording` 里说明原因。
 
+## 兼容性
+
+任何能接受反向 WebSocket 连接的 OneBot v11 框架都应当可用。以下框架已用 `tests/e2e_framework.py` 在本地 Prosody 上验证：XMPP 用户发出的命令能收到框架自己的回复，单聊和群聊都通过。
+
+| 框架 | 版本 | 反向 WebSocket 地址 | 说明 |
+|---|---|---|---|
+| AstrBot | 4.29.3 | `ws://127.0.0.1:6199/ws` | OneBot v11（aiocqhttp）适配器；OMEMO 和公网服务器测试也用它 |
+| LangBot | 4.11.2 | `ws://127.0.0.1:2280/ws` | OneBot v11（aiocqhttp）适配器；默认只在群里被 @ 时回复 |
+| NoneBot2 | 2.5.0（OneBot 适配器 2.4.6） | `ws://127.0.0.1:8080/onebot/v11/ws` | `nonebot-adapter-onebot`，FastAPI 驱动 |
+
+验证日期 2026-10-29。尚未测试：OpenClaw、Hermes Agent（通过社区 OneBot v11 插件）和 Koishi（需要 Satori，尚未实现）。
+
 ## 快速开始
 
 ```bash
@@ -64,7 +76,7 @@ python3 -u tests/e2e_reply.py    # 回复、送达回执、提及、撤回通知
 python3 -u tests/e2e_mam.py      # 通过 MAM 离线补拉
 ```
 
-`tests/e2e_astrbot.py` 对一个正在运行、在 `127.0.0.1:6199` 上有 OneBot v11 适配器的 AstrBot 实例跑同样的往返。
+`tests/e2e_framework.py` 对一个正在运行的机器人框架跑单聊和群聊往返：`FRAMEWORK_WS` 设为它的反向 WebSocket 地址，`CMD` 设为它会回复的命令（默认 `/help`），可选 `GROUP_PREFIX`（如 `"bot: "` 表示 @ 机器人）和 `EXPECT`（回复必须包含的文字）。
 
 `tests/e2e_omemo.py` 通过运行中的 AstrBot 检查 OMEMO：加密命令得到加密回复，且明文正文只有回退文字；随后的明文命令得到明文回复。`MODE=local` 用本地 Prosody，`MODE=public` 用 `.test_bots.json`。
 

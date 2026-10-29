@@ -41,6 +41,18 @@ XMPP clients ⇄ XMPP server ⇄ xmpp-bot-gateway ⇄ OneBot v11 (reverse WebSoc
 
 Unsupported actions return `retcode 1404`. Failed actions return `status: "failed"` with a `wording` explaining why.
 
+## Compatibility
+
+Any OneBot v11 framework that accepts a reverse WebSocket connection should work. These were checked with `tests/e2e_framework.py` on a local Prosody server: a command sent from an XMPP user gets the framework's own reply, in a direct chat and in a group chat.
+
+| Framework | Version | Reverse WebSocket URL | Notes |
+|---|---|---|---|
+| AstrBot | 4.29.3 | `ws://127.0.0.1:6199/ws` | OneBot v11 (aiocqhttp) adapter; also used for the OMEMO and public-server tests |
+| LangBot | 4.11.2 | `ws://127.0.0.1:2280/ws` | OneBot v11 (aiocqhttp) adapter; by default it answers in groups only when the bot is mentioned |
+| NoneBot2 | 2.5.0 (OneBot adapter 2.4.6) | `ws://127.0.0.1:8080/onebot/v11/ws` | `nonebot-adapter-onebot` with the FastAPI driver |
+
+Checked on 2026-10-29. Not tested yet: OpenClaw, Hermes Agent (through community OneBot v11 plugins) and Koishi (needs Satori, which is not implemented).
+
 ## Quick start
 
 ```bash
@@ -64,7 +76,7 @@ python3 -u tests/e2e_reply.py    # replies, delivery receipts, mentions, recall 
 python3 -u tests/e2e_mam.py      # offline catch-up via MAM
 ```
 
-`tests/e2e_astrbot.py` runs the same round trip against a running AstrBot instance with a OneBot v11 adapter on `127.0.0.1:6199`.
+`tests/e2e_framework.py` runs a direct and a group round trip against a running bot framework: set `FRAMEWORK_WS` to its reverse WebSocket URL, `CMD` to a command it answers (default `/help`), and optionally `GROUP_PREFIX` (e.g. `"bot: "` to mention the bot) and `EXPECT` (text the reply must contain).
 
 `tests/e2e_omemo.py` checks OMEMO through a running AstrBot: an encrypted command gets an encrypted reply whose plaintext body is only the fallback text, and a following plaintext command gets a plaintext reply. `MODE=local` uses the local Prosody, `MODE=public` uses `.test_bots.json`.
 

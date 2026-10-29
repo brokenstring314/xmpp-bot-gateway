@@ -1,7 +1,10 @@
-"""与真实 AstrBot 的端到端测试。
+"""End-to-end test against a real OneBot v11 bot framework.
 
-前置：tests/prosody/run.sh 已启动；AstrBot 已运行，并配置了 OneBot v11 (aiocqhttp) 适配器，
-反向 WS 监听 127.0.0.1:6199（路径 /ws）。不需要大模型：用 AstrBot 自带的 /help 指令验证。
+Prerequisites: tests/prosody/run.sh is running, and the framework is running with a OneBot v11
+adapter that accepts a reverse WebSocket at FRAMEWORK_WS. No LLM needed: a built-in or
+test command (CMD, default "/help") must answer in a direct chat and in a group chat.
+EXPECT (optional) is a substring the reply must contain. GROUP_PREFIX (optional) is put before
+the command in the group, e.g. "bot: " to mention the bot.
 """
 import asyncio, json, os, secrets, sys
 import slixmpp
@@ -10,7 +13,10 @@ import tomli_w
 sys.path.insert(0, "src")
 from xmpp_gateway.__main__ import run as run_gateway  # noqa: E402
 
-ASTRBOT_WS = os.environ.get("ASTRBOT_WS", "ws://127.0.0.1:6199/ws")
+FRAMEWORK_WS = os.environ.get("FRAMEWORK_WS") or os.environ.get("ASTRBOT_WS", "ws://127.0.0.1:6199/ws")
+CMD = os.environ.get("CMD", "/help")
+EXPECT = os.environ.get("EXPECT", "")
+GROUP_PREFIX = os.environ.get("GROUP_PREFIX", "")  # e.g. "bot: " for frameworks that answer only when mentioned
 replies = {"private": None, "group": None}
 
 
@@ -27,24 +33,24 @@ class TestUser(slixmpp.ClientXMPP):
         self.send_presence(); await self.get_roster()
         self.send_presence_subscription(pto=self.bot_jid)
         await asyncio.sleep(3)
-        self.send_message(mto=self.bot_jid, mbody="/help", mtype="chat")
+        self.send_message(mto=self.bot_jid, mbody=CMD, mtype="chat")
 
     def on_msg(self, m):
         if m["type"] == "chat" and m["from"].bare == self.bot_jid and m["body"]:
-            replies["private"] = m["body"]
+            if EXPECT in m["body"]: replies["private"] = m["body"]
 
     def on_group(self, m):
         if m["mucnick"] == "bot" and m["body"] and not m.xml.find("{urn:xmpp:delay}delay") is not None:
-            replies["group"] = m["body"]
+            if EXPECT in m["body"]: replies["group"] = m["body"]
 
 
 async def main():
     acc = json.load(open("tests/prosody/run/accounts.json"))
-    room = f"astrbot-{secrets.token_hex(4)}@conference.test.local"
+    room = f"fw-{secrets.token_hex(4)}@conference.test.local"
     cfg = {"xmpp": {"rate_limit": 0, **acc["bot"], "server": "127.0.0.1", "port": 15222, "tls": "none", "nick": "bot", "rooms": [room]},
            "storage": {"db": "tests/prosody/run/gateway.db"},
-           "onebot_v11": {"enabled": True, "reverse_ws": [ASTRBOT_WS]}}
-    path = "tests/prosody/run/e2e_astrbot.toml"
+           "onebot_v11": {"enabled": True, "reverse_ws": [FRAMEWORK_WS]}}
+    path = "tests/prosody/run/e2e_framework.toml"
     open(path, "wb").write(tomli_w.dumps(cfg).encode())
     gw = asyncio.create_task(run_gateway(path))
     await asyncio.sleep(8)
@@ -55,7 +61,7 @@ async def main():
     await asyncio.sleep(8)
     u.plugin["xep_0045"].join_muc(room, "tester")
     await asyncio.sleep(3)
-    u.send_message(mto=room, mbody="/help", mtype="groupchat")
+    u.send_message(mto=room, mbody=GROUP_PREFIX + CMD, mtype="groupchat")
     for _ in range(25):
         if all(replies.values()): break
         await asyncio.sleep(1)
