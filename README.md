@@ -63,6 +63,17 @@ xmpp-gateway -c config.toml
 
 In your bot framework, add a OneBot v11 adapter that listens for a reverse WebSocket connection, and put its URL in `onebot_v11.reverse_ws`.
 
+## Docker
+
+```bash
+docker build -t xmpp-bot-gateway .        # --build-arg EXTRAS= leaves out the OMEMO dependencies
+mkdir -p data && sudo chown 10001 data    # the container runs as uid 10001
+docker run -d --name xmpp-gateway --restart unless-stopped \
+  -v "$PWD/config.toml:/app/config.toml:ro" -v "$PWD/data:/app/data" xmpp-bot-gateway
+```
+
+The config file is read from `/app/config.toml`; the relative paths in it (`data/...`) resolve inside `/app`, so the database, OMEMO keys and media end up in the `data` volume. Back that directory up: it holds the bot's OMEMO identity. The gateway only makes outgoing connections. A framework running on the host is reachable with `--network host`, or at `ws://host.docker.internal:PORT/...` with `--add-host host.docker.internal:host-gateway`. `docker stop` shuts it down cleanly. `docker-compose.example.yml` has the same setup for Compose. Version tags (`v*`) publish amd64 and arm64 images to `ghcr.io/brokenstring314/xmpp-bot-gateway`.
+
 ## Configuration
 
 Everything is set in one TOML file; `config.example.toml` lists every option with its default.

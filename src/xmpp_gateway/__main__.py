@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import logging
 import os
+import signal
 import sys
 from typing import Any
 
@@ -68,9 +69,16 @@ class Gateway:
 
 async def run(config_path: str) -> None:
     gw = Gateway(config_path)
+    stop = asyncio.Event()
+    if sys.platform != "win32":
+        # docker stop / systemctl stop send SIGTERM; as PID 1 in a container the default action would be ignored
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, stop.set)
     await gw.start()
     try:
-        await asyncio.Event().wait()
+        await stop.wait()
+        log.info("shutting down")
     finally:
         await gw.stop()
 

@@ -39,3 +39,23 @@ jobs:
         run: |
           { echo "CI failed at ${GITHUB_SHA::7}. Step: see run ${GITHUB_RUN_ID}"; echo '```'; tail -c 30000 /tmp/ci.log 2>/dev/null; tail -40 tests/prosody/run/prosody.log 2>/dev/null; echo '```'; } > /tmp/body.md
           gh issue create --title "CI failure ${GITHUB_SHA::7}" --body-file /tmp/body.md --label ci-failure || gh issue create --title "CI failure ${GITHUB_SHA::7}" --body-file /tmp/body.md
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y prosody && sudo systemctl stop prosody || true
+      - run: pip install slixmpp aiohttp tomli-w
+      - run: docker build -t xmpp-bot-gateway:test .
+      - run: docker image ls xmpp-bot-gateway:test
+      - name: start local Prosody
+        run: |
+          setsid bash tests/prosody/run.sh > /tmp/prosody.log 2>&1 < /dev/null &
+          for i in $(seq 30); do nc -z 127.0.0.1 15222 && break; sleep 1; done
+      - run: IMAGE=xmpp-bot-gateway:test python -u tests/docker_smoke.py
+      - if: failure()
+        run: docker logs xgw-smoke || true; tail -50 /tmp/prosody.log tests/prosody/run/prosody.log || true

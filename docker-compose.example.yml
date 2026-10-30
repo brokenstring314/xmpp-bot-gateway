@@ -1,0 +1,17 @@
+# Copy to docker-compose.yml next to your config.toml, then: docker compose up -d
+# Relative paths in config.toml (data/...) resolve inside /app, so they land in the ./data volume.
+# The data directory must be writable by uid 10001: mkdir -p data && sudo chown 10001 data
+services:
+  xmpp-gateway:
+    image: ghcr.io/brokenstring314/xmpp-bot-gateway:latest
+    # build: .            # or build the image from a checkout
+    restart: unless-stopped
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - ./data:/app/data
+    # environment:        # referenced from config.toml as ${XMPP_PASSWORD}
+    #   XMPP_PASSWORD: change-me
+    # The gateway only makes outgoing connections. If the bot framework runs on the host, either use
+    # network_mode: host, or point reverse_ws at ws://host.docker.internal:PORT/... with:
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"

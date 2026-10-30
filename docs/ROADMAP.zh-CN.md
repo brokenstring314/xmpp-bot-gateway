@@ -18,8 +18,9 @@
   - 配置（2026-10-29）：剩余写死的参数改为可配置：`[log]` 日志级别与轮转日志文件，XMPP `reconnect_max`、`join_timeout`、在线状态 `status`，OMEMO `resync_cooldown`，媒体 `http_timeout`；`reverse_ws` 每项可单独设 `access_token`；任何字符串支持 `${NAME}` 环境变量；未知配置项直接报错；`--check` 只校验配置文件。新增 `tests/test_config.py`（已进 CI）。网页配置界面暂不考虑。
   - 配置分支测试（2026-10-29）：`tests/e2e_config.py`（45 项）与 `tests/e2e_config_omemo.py`（14 项）在本地 Prosody 上逐项验证每个配置，含用测试 CA 的 STARTTLS / 直连 TLS（已进 CI）。由此修复：加入超时的房间仍被当作已加入，其群消息会被接受；MAM 补拉丢弃早于请求起点的归档（Prosody 13 不认带小数秒的 `start`，会重放整个归档并绕过 `mam_max_age`）；`tls`、OMEMO `trust`、`message_format` 取值做校验；`[satori] enabled = true` 会提示 Satori 尚未实现。
   - 待做：定期复查依赖漏洞（下次 2026-11 底）
+- **Docker**（2026-10-30）：`Dockerfile`（多阶段构建，非 root uid 10001，默认含 OMEMO 依赖，`EXTRAS=` 可去掉）、`docker-compose.example.yml`，收到 SIGTERM 正常退出。`tests/docker_smoke.py`（9 项：`--check`、带 OMEMO 启动、收发往返、状态写入数据卷、SIGTERM 停止、同一数据重启）在 CI 中对构建出的镜像运行。推送版本标签时向 GHCR 发布 amd64/arm64 镜像。
 - **P3 多协议**（暂缓）：Satori 接 Koishi；OneBot v11 正向 WS / HTTP API；OneBot 12 / Milky 视需求
-- **P4**（暂缓）：OMEMO 群聊（非匿名 members-only 房间）、多账号、WebUI、Docker 发布
+- **P4**（暂缓）：OMEMO 群聊（非匿名 members-only 房间）、多账号、WebUI
 
 ## 消息段映射
 

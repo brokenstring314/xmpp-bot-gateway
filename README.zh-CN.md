@@ -63,6 +63,17 @@ xmpp-gateway -c config.toml
 
 在机器人框架里添加一个 OneBot v11 适配器，让它监听反向 WebSocket 连接，并把它的地址填到 `onebot_v11.reverse_ws`。
 
+## Docker
+
+```bash
+docker build -t xmpp-bot-gateway .        # 加 --build-arg EXTRAS= 可去掉 OMEMO 依赖
+mkdir -p data && sudo chown 10001 data    # 容器以 uid 10001 运行
+docker run -d --name xmpp-gateway --restart unless-stopped \
+  -v "$PWD/config.toml:/app/config.toml:ro" -v "$PWD/data:/app/data" xmpp-bot-gateway
+```
+
+配置文件从 `/app/config.toml` 读取；其中的相对路径（`data/...`）以 `/app` 为基准，所以数据库、OMEMO 密钥和媒体文件都落在 `data` 卷里。请备份这个目录：里面有机器人的 OMEMO 身份。网关只发起出站连接。框架跑在宿主机上时，可用 `--network host`，或加 `--add-host host.docker.internal:host-gateway` 后连 `ws://host.docker.internal:端口/...`。`docker stop` 会正常退出。Compose 用法见 `docker-compose.example.yml`。推送版本标签（`v*`）时会向 `ghcr.io/brokenstring314/xmpp-bot-gateway` 发布 amd64 和 arm64 镜像。
+
 ## 配置
 
 所有设置都在一个 TOML 文件里；`config.example.toml` 列出了每一项及默认值。
