@@ -108,7 +108,7 @@ python3 -u tests/e2e_mam.py      # 通过 MAM 离线补拉
 
 `tests/e2e_omemo.py` 通过运行中的 AstrBot 检查 OMEMO：加密命令得到加密回复，且明文正文只有回退文字；随后的明文命令得到明文回复。`MODE=local` 用本地 Prosody，`MODE=public` 用 `.test_bots.json`。
 
-`tests/e2e_public.py` 在公网 XMPP 服务器上运行：从 `.test_bots.json`（`{"jid", "password"}` 列表，用 `BOT_JID` / `USER_JID` 选角色）读取测试账号，检查单聊、邀请进新建房间、以及通过运行中的 AstrBot 的群聊。
+`tests/e2e_public.py` 在公网 XMPP 服务器上运行：从 `.test_bots.json`（`{"jid", "password"}` 列表，用 `BOT_JID` / `USER_JID` 选角色）读取测试账号，检查单聊、邀请进新建房间、以及通过运行中的 AstrBot 的群聊。请使用自己服务器上的账号，或条款允许机器人账号的服务商，并控制测试规模。
 
 ## 状态
 
@@ -118,4 +118,10 @@ python3 -u tests/e2e_mam.py      # 通过 MAM 离线补拉
 
 [Apache License 2.0](LICENSE)。
 
-可选的 `[omemo]` 附加依赖会安装 `slixmpp-omemo` 和 `oldmemo`，它们采用 AGPL-3.0 许可证，保留各自的许可：如果你把网关和它们一起分发，或带着它们作为网络服务运行，还需要满足 AGPL-3.0 的条款。
+可选的 `[omemo]` 附加依赖会安装 `slixmpp-omemo` 和 `oldmemo`，它们采用 AGPL-3.0-only 许可证，保留各自的许可：如果你把网关和它们一起分发，或带着它们作为网络服务运行，还需要满足 AGPL-3.0 的条款。其余依赖均为宽松许可证（MIT、BSD、Apache-2.0、PSF）。
+
+发布的 Docker 镜像带 `[omemo]` 构建，因此包含 AGPL-3.0-only 组件，镜像整体按 AGPL-3.0 条款分发；其中本项目自己的代码仍是 Apache-2.0。这两个 AGPL-3.0-only 包都是纯 Python、未经修改安装，镜像里就带着它们的源代码和许可证文件；上游源码见 [slixmpp-omemo](https://github.com/Syndace/slixmpp-omemo) 和 [python-oldmemo](https://github.com/Syndace/python-oldmemo)。用 `--build-arg EXTRAS=""` 可以构建不含这些组件的镜像。基础镜像（`python:3.12-slim`，Debian）里的软件包保留各自的许可证。
+
+## 商标
+
+本项目与 XMPP 标准基金会（XSF）、OneBot 项目、AstrBot、NoneBot、LangBot 均无隶属或背书关系，提及这些名称只为说明兼容性。JABBER is a registered trademark and its use is licensed through the XMPP Standards Foundation.

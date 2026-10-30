@@ -18,9 +18,11 @@ RUN pip wheel --no-cache-dir --wheel-dir /wheels ".${EXTRAS:+[$EXTRAS]}"
 
 FROM python:3.12-slim
 ARG EXTRAS=omemo
+# With the default OMEMO extra the image contains AGPL-3.0-only components; pass IMAGE_LICENSES="Apache-2.0" with EXTRAS=""
+ARG IMAGE_LICENSES="Apache-2.0 AND AGPL-3.0-only"
 LABEL org.opencontainers.image.source="https://github.com/brokenstring314/xmpp-bot-gateway" \
       org.opencontainers.image.description="XMPP bot gateway: direct and group chats over OneBot v11" \
-      org.opencontainers.image.licenses="Apache-2.0"
+      org.opencontainers.image.licenses="${IMAGE_LICENSES}"
 RUN --mount=from=build,source=/wheels,target=/wheels \
     pip install --no-cache-dir --no-index --find-links /wheels "xmpp-bot-gateway${EXTRAS:+[$EXTRAS]}"
 RUN useradd --system --uid 10001 --home-dir /app gateway && mkdir -p /app/data && chown gateway /app/data

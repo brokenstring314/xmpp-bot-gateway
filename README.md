@@ -108,7 +108,7 @@ python3 -u tests/e2e_mam.py      # offline catch-up via MAM
 
 `tests/e2e_omemo.py` checks OMEMO through a running AstrBot: an encrypted command gets an encrypted reply whose plaintext body is only the fallback text, and a following plaintext command gets a plaintext reply. `MODE=local` uses the local Prosody, `MODE=public` uses `.test_bots.json`.
 
-`tests/e2e_public.py` runs against public XMPP servers: it reads test accounts from `.test_bots.json` (a list of `{"jid", "password"}`; pick roles with `BOT_JID` / `USER_JID`), then checks a direct chat, an invite into a freshly created room, and a group chat through a running AstrBot.
+`tests/e2e_public.py` runs against public XMPP servers: it reads test accounts from `.test_bots.json` (a list of `{"jid", "password"}`; pick roles with `BOT_JID` / `USER_JID`), then checks a direct chat, an invite into a freshly created room, and a group chat through a running AstrBot. Use accounts on your own server, or on a provider whose terms allow bot accounts, and keep test runs small.
 
 ## Status
 
@@ -118,4 +118,10 @@ Early development. See [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/TESTING.md](
 
 [Apache License 2.0](LICENSE).
 
-The optional `[omemo]` extra installs `slixmpp-omemo` and `oldmemo`, which are licensed under AGPL-3.0. They keep their own license: if you distribute the gateway together with them, or run it with them as a network service, you also need to meet the AGPL-3.0 terms.
+The optional `[omemo]` extra installs `slixmpp-omemo` and `oldmemo`, which are licensed under AGPL-3.0-only. They keep their own license: if you distribute the gateway together with them, or run it with them as a network service, you also need to meet the AGPL-3.0 terms. The other dependencies use permissive licenses (MIT, BSD, Apache-2.0, PSF).
+
+The published Docker image is built with the `[omemo]` extra, so it contains AGPL-3.0-only components and is distributed under the AGPL-3.0 terms as a whole; the code of this project inside it stays Apache-2.0. Both AGPL-3.0-only packages are pure Python and are installed unmodified, so their source code and license files are inside the image; their upstream sources are [slixmpp-omemo](https://github.com/Syndace/slixmpp-omemo) and [python-oldmemo](https://github.com/Syndace/python-oldmemo). Build with `--build-arg EXTRAS=""` for an image without them. The base image (`python:3.12-slim`, Debian) keeps the licenses of its own packages.
+
+## Trademarks
+
+This project is not affiliated with or endorsed by the XMPP Standards Foundation, the OneBot project, AstrBot, NoneBot or LangBot; their names are used only to describe compatibility. JABBER is a registered trademark and its use is licensed through the XMPP Standards Foundation.
