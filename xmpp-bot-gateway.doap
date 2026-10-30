@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<Project xmlns="http://usefulinc.com/ns/doap#" xmlns:xmpp="https://linkmauve.fr/ns/xmpp-doap#">
+  <name>xmpp-bot-gateway</name>
+  <created>2026-10-16</created>
+  <shortdesc xml:lang="en">Run OneBot v11 chatbots on XMPP</shortdesc>
+  <description xml:lang="en">A standalone gateway that logs in to an XMPP account and exposes its direct chats and group chats over the OneBot v11 protocol, so OneBot v11 bot frameworks can run on XMPP, with OMEMO support for direct chats.</description>
+  <homepage rdf:resource="https://github.com/brokenstring314/xmpp-bot-gateway"/>
+  <bug-database rdf:resource="https://github.com/brokenstring314/xmpp-bot-gateway/issues"/>
+  <license rdf:resource="https://github.com/brokenstring314/xmpp-bot-gateway/blob/main/LICENSE"/>
+  <language>en</language>
+  <language>zh</language>
+  <programming-language>Python</programming-language>
+  <os>Linux</os>
+  <category rdf:resource="https://linkmauve.fr/ns/xmpp-doap#category-client"/>
+  <repository>
+    <GitRepository>
+      <browse rdf:resource="https://github.com/brokenstring314/xmpp-bot-gateway"/>
+      <location rdf:resource="https://github.com/brokenstring314/xmpp-bot-gateway.git"/>
+    </GitRepository>
+  </repository>
+  <implements rdf:resource="https://xmpp.org/rfcs/rfc6120.html"/>
+  <implements rdf:resource="https://xmpp.org/rfcs/rfc6121.html"/>
+  <implements rdf:resource="https://xmpp.org/rfcs/rfc7590.html"/>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0004.html"/>
+      <xmpp:status>complete</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Room configuration forms when creating rooms</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0030.html"/>
+      <xmpp:status>complete</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0045.html"/>
+      <xmpp:status>partial</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Joins configured rooms and creates them as instant rooms; accepts mediated invitations; no room administration</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0066.html"/>
+      <xmpp:status>complete</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Out-of-band URL on outgoing media and to recognise incoming media</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0184.html"/>
+      <xmpp:status>partial</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Answers receipt requests on incoming messages</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0199.html"/>
+      <xmpp:status>complete</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0249.html"/>
+      <xmpp:status>partial</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Accepts direct invitations from roster contacts and admins by default</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0313.html"/>
+      <xmpp:status>partial</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Catch-up of missed direct and group messages after (re)connecting</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0359.html"/>
+      <xmpp:status>complete</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>origin-id on outgoing messages; room stanza-id used for replies</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0363.html"/>
+      <xmpp:status>complete</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Uploads outgoing files that are not already URLs</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0372.html"/>
+      <xmpp:status>partial</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Mentions of the bot in group chats, and mentions on outgoing at segments</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0380.html"/>
+      <xmpp:status>complete</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0384.html"/>
+      <xmpp:status>partial</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Legacy OMEMO (eu.siacs.conversations.axolotl) in direct chats; no group chat OMEMO yet</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0421.html"/>
+      <xmpp:status>complete</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Used to identify group senders in rooms that support it</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0424.html"/>
+      <xmpp:status>complete</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Retracts the gateway's own messages; incoming retractions become recall notices</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0428.html"/>
+      <xmpp:status>complete</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Quoted fallback for replies</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0454.html"/>
+      <xmpp:status>complete</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+      <xmpp:note>Encrypted file sharing in OMEMO chats</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0461.html"/>
+      <xmpp:status>complete</xmpp:status>
+      <xmpp:since>0.1.0</xmpp:since>
+    </xmpp:SupportedXep>
+  </implements>
+  <release>
+    <Version>
+      <revision>0.1.0</revision>
+      <created>2026-10-30</created>
+    </Version>
+  </release>
+</Project>
+</rdf:RDF>

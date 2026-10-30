@@ -1,6 +1,12 @@
 # xmpp-bot-gateway
 
+[![OneBot v11](https://img.shields.io/badge/OneBot-v11-black)](https://11.onebot.dev/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![CI](https://github.com/brokenstring314/xmpp-bot-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/brokenstring314/xmpp-bot-gateway/actions/workflows/ci.yml)
+
 [简体中文](README.zh-CN.md)
+
+**Run OneBot v11 chatbots on XMPP (Jabber).** Connect AstrBot, NoneBot2, LangBot or any other OneBot v11 bot framework to XMPP direct chats and group chats, with OMEMO encryption.
 
 A standalone gateway that logs in to an XMPP account and exposes its direct chats and group chats (MUC) over the OneBot v11 protocol, so OneBot v11 bot frameworks can run on XMPP.
 

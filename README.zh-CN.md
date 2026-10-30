@@ -1,6 +1,12 @@
 # xmpp-bot-gateway
 
+[![OneBot v11](https://img.shields.io/badge/OneBot-v11-black)](https://11.onebot.dev/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![CI](https://github.com/brokenstring314/xmpp-bot-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/brokenstring314/xmpp-bot-gateway/actions/workflows/ci.yml)
+
 [English](README.md)
+
+**XMPP（Jabber）机器人协议端，让 OneBot v11 机器人跑在 XMPP 上。** 把 AstrBot、NoneBot2、LangBot 等 OneBot v11 机器人框架接入 XMPP 单聊和群聊，支持 OMEMO 加密。
 
 一个独立运行的网关：登录一个 XMPP 账号，把它的单聊和群聊（MUC）通过 OneBot v11 协议暴露出来，让 OneBot v11 机器人框架可以跑在 XMPP 上。
 
