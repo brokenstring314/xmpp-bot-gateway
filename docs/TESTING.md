@@ -7,8 +7,9 @@
 ```bash
 bash tests/prosody/run.sh &          # local Prosody (127.0.0.1:15222)
 python -m mypy                       # type check
-python -m pytest -q tests/test_cq.py tests/test_props.py
-for t in p0 media reply mam omemo_resync redteam chaos; do python -u tests/e2e_$t.py; done
+python -m pytest -q tests/test_cq.py tests/test_props.py tests/test_config.py
+for t in p0 media reply mam omemo_resync redteam config config_omemo chaos; do python -u tests/e2e_$t.py; done
+# Docker job: build the image, then IMAGE=<tag> python -u tests/docker_smoke.py
 # with coverage: replace `python -u` by `python -u tests/cov_run.py`, then `coverage combine && coverage report`
 ```
 
@@ -31,7 +32,7 @@ Results go to `soak-<time>/`: `report.md` is the summary, `pings.csv`, `samples.
 
 ## Manual client checklist (Conversations / Gajim)
 
-Prerequisites: the gateway and a bot framework are running, and your account has the bot as a contact. Check the bot's reaction for each item and take a screenshot when something is wrong.
+Prerequisites: the gateway and a bot framework are running, and your account has the bot as a contact. `!help` stands for any command your framework answers. Check the bot's reaction for each item and take a screenshot when something is wrong.
 
 | # | Action | Expected |
 |---|---|---|

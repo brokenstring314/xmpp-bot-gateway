@@ -94,7 +94,7 @@ Everything is set in one TOML file; `config.example.toml` lists every option wit
 
 ```bash
 tests/prosody/run.sh &           # local Prosody on 127.0.0.1:15222 with random test accounts
-python3 -m pytest -q tests/test_cq.py tests/test_props.py   # unit and property-based tests
+python3 -m pytest -q tests/test_cq.py tests/test_props.py tests/test_config.py   # unit, property-based and config tests
 python3 -u tests/e2e_redteam.py  # forged, malformed and abusive stanzas from a hostile client
 FRAMEWORK=astrbot python3 -u tests/e2e_redteam_chain.py  # hostile user against a real bot framework (see the file for setup)
 python3 -u tests/e2e_chaos.py    # bot app outage, server restart, bursts in both directions (restarts Prosody)
@@ -118,7 +118,7 @@ Early development. See [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/TESTING.md](
 
 [Apache License 2.0](LICENSE).
 
-The optional `[omemo]` extra installs `slixmpp-omemo` and `oldmemo`, which are licensed under AGPL-3.0-only. They keep their own license: if you distribute the gateway together with them, or run it with them as a network service, you also need to meet the AGPL-3.0 terms. The other dependencies use permissive licenses (MIT, BSD, Apache-2.0, PSF).
+The optional `[omemo]` extra installs `slixmpp-omemo` and `oldmemo`, which are licensed under AGPL-3.0-only. They keep their own license: if you distribute the gateway together with them, you also need to meet the AGPL-3.0 terms, and if you modify them and run the result as a network service, you must offer its users the modified source. The other dependencies use permissive licenses (MIT, BSD, Apache-2.0, PSF).
 
 The published Docker image is built with the `[omemo]` extra, so it contains AGPL-3.0-only components and is distributed under the AGPL-3.0 terms as a whole; the code of this project inside it stays Apache-2.0. Both AGPL-3.0-only packages are pure Python and are installed unmodified, so their source code and license files are inside the image; their upstream sources are [slixmpp-omemo](https://github.com/Syndace/slixmpp-omemo) and [python-oldmemo](https://github.com/Syndace/python-oldmemo). Build with `--build-arg EXTRAS=""` for an image without them. The base image (`python:3.12-slim`, Debian) keeps the licenses of its own packages.
 

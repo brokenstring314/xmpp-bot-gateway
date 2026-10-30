@@ -94,7 +94,7 @@ docker run -d --name xmpp-gateway --restart unless-stopped \
 
 ```bash
 tests/prosody/run.sh &           # 本地 Prosody，127.0.0.1:15222，随机测试账号
-python3 -m pytest -q tests/test_cq.py tests/test_props.py   # 单元测试和属性测试
+python3 -m pytest -q tests/test_cq.py tests/test_props.py tests/test_config.py   # 单元测试、属性测试和配置测试
 python3 -u tests/e2e_redteam.py  # 恶意客户端发来的伪造、畸形和滥用节
 FRAMEWORK=astrbot python3 -u tests/e2e_redteam_chain.py  # 恶意用户攻击真实 bot 框架（准备步骤见文件头）
 python3 -u tests/e2e_chaos.py    # 机器人应用断线、服务器重启、双向突发（会重启 Prosody）
@@ -118,7 +118,7 @@ python3 -u tests/e2e_mam.py      # 通过 MAM 离线补拉
 
 [Apache License 2.0](LICENSE)。
 
-可选的 `[omemo]` 附加依赖会安装 `slixmpp-omemo` 和 `oldmemo`，它们采用 AGPL-3.0-only 许可证，保留各自的许可：如果你把网关和它们一起分发，或带着它们作为网络服务运行，还需要满足 AGPL-3.0 的条款。其余依赖均为宽松许可证（MIT、BSD、Apache-2.0、PSF）。
+可选的 `[omemo]` 附加依赖会安装 `slixmpp-omemo` 和 `oldmemo`，它们采用 AGPL-3.0-only 许可证，保留各自的许可：如果你把网关和它们一起分发，还需要满足 AGPL-3.0 的条款；如果你修改了它们并作为网络服务运行，必须向服务的用户提供修改后的源代码。其余依赖均为宽松许可证（MIT、BSD、Apache-2.0、PSF）。
 
 发布的 Docker 镜像带 `[omemo]` 构建，因此包含 AGPL-3.0-only 组件，镜像整体按 AGPL-3.0 条款分发；其中本项目自己的代码仍是 Apache-2.0。这两个 AGPL-3.0-only 包都是纯 Python、未经修改安装，镜像里就带着它们的源代码和许可证文件；上游源码见 [slixmpp-omemo](https://github.com/Syndace/slixmpp-omemo) 和 [python-oldmemo](https://github.com/Syndace/python-oldmemo)。用 `--build-arg EXTRAS=""` 可以构建不含这些组件的镜像。基础镜像（`python:3.12-slim`，Debian）里的软件包保留各自的许可证。
 
