@@ -2,6 +2,8 @@
 
 [简体中文](ROADMAP.zh-CN.md)
 
+For a checklist of what is supported now, see [FEATURES.md](FEATURES.md).
+
 - **P0 Basics** (done; see `tests/e2e_p0.py` and `tests/e2e_framework.py`): plaintext direct chats and MUC group chats, OneBot v11 reverse WebSocket, heartbeat and lifecycle events, common actions, retracting the bot's own messages (XEP-0424), OOB links. Plaintext direct chat verified on a real Conversations client.
 - **P1 Encryption** (in progress): ✅ OMEMO direct chats, send and receive (encrypted replies use `eu.siacs.conversations.axolotl`); ✅ blind trust before verification and manual trust; ✅ local and public-server end-to-end tests; ✅ encrypted interop verified on real mobile and desktop clients. To do: encrypted sending with `urn:xmpp:omemo:2` (needs SCE), encrypted key storage.
 - **P2 Rich messages** (done): ✅ media send and receive (base64 / file / http sources, XEP-0363 upload + XEP-0066 OOB; XEP-0454 aesgcm encrypted upload and decrypted download in OMEMO chats); ✅ replies (XEP-0461 with XEP-0428 fallback quote, both directions, direct and group); ✅ automatic delivery receipts (XEP-0184); ✅ mentions (nick prefix + XEP-0372 reference, both directions); ✅ retraction (XEP-0424 for own messages; contacts' retractions arrive as `friend_recall` / `group_recall`); ✅ offline catch-up via MAM (XEP-0313, direct and group, deduplicated, original timestamps); ✅ undelivered events re-sent after the reverse WebSocket reconnects.

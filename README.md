@@ -16,6 +16,8 @@ XMPP clients ⇄ XMPP server ⇄ xmpp-bot-gateway ⇄ OneBot v11 (reverse WebSoc
 
 ## Features
 
+A checklist of what is supported and what is not supported yet: [docs/FEATURES.md](docs/FEATURES.md).
+
 - Plaintext direct chats and MUC group chats (joins configured rooms, creates them as instant rooms if new; history replay on join is skipped, missed messages come from MAM catch-up instead)
 - OneBot v11 reverse WebSocket (Universal role) with optional access token, auto-reconnect with backoff
 - Meta events: `lifecycle` (connect) and `heartbeat`
@@ -112,7 +114,7 @@ python3 -u tests/e2e_mam.py      # offline catch-up via MAM
 
 ## Status
 
-Early development. See [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/TESTING.md](docs/TESTING.md).
+Early development. See [docs/FEATURES.md](docs/FEATURES.md), [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/TESTING.md](docs/TESTING.md).
 
 ## License
 

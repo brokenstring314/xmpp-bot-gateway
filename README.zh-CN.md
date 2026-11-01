@@ -16,6 +16,8 @@ XMPP 客户端 ⇄ XMPP 服务器 ⇄ xmpp-bot-gateway ⇄ OneBot v11（反向 W
 
 ## 功能
 
+已支持与尚未支持的功能清单见 [docs/FEATURES.zh-CN.md](docs/FEATURES.zh-CN.md)。
+
 - 明文单聊和 MUC 群聊（加入配置的房间，不存在则创建为即时房间；进群时不重放历史，离线消息由 MAM 补拉负责）
 - OneBot v11 反向 WebSocket（Universal 角色），可选 access token，断线退避重连
 - 元事件：`lifecycle`（连接）和 `heartbeat`
@@ -112,7 +114,7 @@ python3 -u tests/e2e_mam.py      # 通过 MAM 离线补拉
 
 ## 状态
 
-早期开发中。见 [docs/ROADMAP.zh-CN.md](docs/ROADMAP.zh-CN.md) 和 [docs/TESTING.zh-CN.md](docs/TESTING.zh-CN.md)。
+早期开发中。见 [docs/FEATURES.zh-CN.md](docs/FEATURES.zh-CN.md)、[docs/ROADMAP.zh-CN.md](docs/ROADMAP.zh-CN.md) 和 [docs/TESTING.zh-CN.md](docs/TESTING.zh-CN.md)。
 
 ## 许可证
 
