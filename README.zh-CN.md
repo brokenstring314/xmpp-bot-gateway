@@ -35,6 +35,7 @@ XMPP 客户端 ⇄ XMPP 服务器 ⇄ xmpp-bot-gateway ⇄ OneBot v11（反向 W
 - 房间邀请（XEP-0045 中转邀请和 XEP-0249 直接邀请）：默认只接受花名册联系人和 `xmpp.admins` 的邀请；把 `xmpp.accept_invites` 设为 `"all"` 或 `"none"` 可改变
 - 好友请求（presence 订阅），由 `xmpp.contact_requests` 决定：`"report"`（默认）推送 `request.friend`（`flag` 为请求者 JID），等待 `set_friend_add_request`，同意时回加对方、把可选的 `remark` 设为花名册名称并推送 `notice.friend_add`；`"accept"` 同意所有请求、回加对方并推送 `notice.friend_add`；`"reject"` 拒绝所有请求。网关离线期间收到的请求，服务器会在下次登录时重新投递。`delete_friend` 删除联系人并取消双向订阅。同意后的联系人算作花名册联系人，在 `accept_invites = "roster"` 下其邀请也会被接受，所以用 `"accept"` 时，任何加了机器人的人都能邀请它进群
 - 「正在输入」状态（XEP-0085），只用于单聊，且只发给自己客户端会发送输入状态的联系人：消息交给机器人框架后，机器人显示正在输入，直到回复或 `xmpp.typing_timeout` 秒后（默认 60）；`set_input_status`（`event_type` 1 = 正在输入，其他值 = 停止）可手动设置。设 `xmpp.report_typing = true` 后，联系人开始或停止输入会推送 `notice.notify.input_status`（`event_type` 1 或 0）。用 `xmpp.chat_states = false` 关闭机器人自己的输入状态
+- 群成员进出通知：`notice.group_increase`（`approve`）和 `notice.group_decrease`（`leave`；`kick`，房间给出操作者时 `operator_id` 为该主持人；`kick_me`，机器人自己被踢或被封禁，之后该群视为已退出）。机器人进群或重新进群时收到的成员列表、状态更新、改昵称都不推送，机器人离线期间的进出不会补报。`user_id` 与该成员群消息里的一致。用 `xmpp.member_notices = false` 关闭
 
 ### 加固
 
@@ -107,6 +108,7 @@ python3 -u tests/e2e_media.py    # 媒体上传/下载，包括 OMEMO 加密文�
 python3 -u tests/e2e_reply.py    # 回复、送达回执、提及、撤回通知
 python3 -u tests/e2e_contacts.py # 三种模式下的好友请求、delete_friend
 python3 -u tests/e2e_typing.py   # 「正在输入」状态（XEP-0085）
+python3 -u tests/e2e_members.py  # 群成员进出通知
 python3 -u tests/e2e_mam.py      # 通过 MAM 离线补拉
 ```
 

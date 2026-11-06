@@ -12,7 +12,7 @@ import time
 import aiohttp
 
 from ... import __version__
-from ...core.events import ContactEvent, RecallEvent, Scene, TypingEvent
+from ...core.events import ContactEvent, MemberEvent, RecallEvent, Scene, TypingEvent
 from ...xmpp import media
 from . import cq
 
@@ -126,6 +126,8 @@ class OneBotV11:
                     payload = await self._translate_contact(ev)
                 elif isinstance(ev, TypingEvent):
                     payload = await self._translate_typing(ev)
+                elif isinstance(ev, MemberEvent):
+                    payload = await self._translate_member(ev)
                 else:
                     payload = await self._translate(ev)
                 if payload is None:
@@ -188,6 +190,14 @@ class OneBotV11:
             return base | {"post_type": "request", "request_type": "friend", "comment": ev.comment,
                            "flag": ev.sender_jid}
         return base | {"post_type": "notice", "notice_type": "friend_add"}
+
+    async def _translate_member(self, ev: MemberEvent) -> dict:
+        """notice.group_increase / group_decrease；operator_id 未知时为 0。"""
+        return {"time": int(ev.time or time.time()), "self_id": self.self_id, "post_type": "notice",
+                "notice_type": f"group_{ev.kind}", "sub_type": ev.sub_type,
+                "group_id": await self.idmap.to_int("group", ev.room_jid),
+                "user_id": await self.idmap.to_int("user", ev.member),
+                "operator_id": await self.idmap.to_int("user", ev.operator) if ev.operator else 0}
 
     async def _translate_typing(self, ev: TypingEvent) -> dict:
         """NapCat 扩展 notice.notify.input_status：event_type 1 = 正在输入，0 = 停止。"""

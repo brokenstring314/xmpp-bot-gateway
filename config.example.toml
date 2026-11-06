@@ -35,6 +35,7 @@ contact_requests = "report"
 chat_states = true     # show the bot as typing while the framework handles a message
 typing_timeout = 60    # s, stop showing typing if no reply by then
 report_typing = false  # send notice.notify.input_status when a contact starts / stops typing
+member_notices = true  # group member join / leave -> notice.group_increase / group_decrease
 
 [omemo]
 # OMEMO for direct chats; needs the optional dependencies: pip install -e ".[omemo]"

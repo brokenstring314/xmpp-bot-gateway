@@ -37,7 +37,7 @@
 | 稳定的成员身份（真实 JID 或 XEP-0421 occupant-id） | ✅ |
 | 群列表、群信息、成员列表、成员信息、退群 | ✅ |
 | 群聊 OMEMO（加密群消息会被忽略） | ⬜ 尚未支持 |
-| 成员进群 / 退群通知（`group_increase` / `group_decrease`） | ⬜ 尚未支持 |
+| 成员进群 / 退群通知（`group_increase` / `group_decrease`：主动退群、被踢、机器人被踢） | ✅ |
 | 踢人（`set_group_kick`） | ⬜ 尚未支持 |
 | 禁言单人或全员（`set_group_ban` / `set_group_whole_ban`） | ⬜ 尚未支持 |
 | 设置管理员（`set_group_admin`）及管理员变动通知 | ⬜ 尚未支持 |

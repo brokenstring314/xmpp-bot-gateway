@@ -72,3 +72,20 @@ class TypingEvent:
     @property
     def message_id(self) -> str:
         return f"typing:{self.sender_jid}"
+
+
+@dataclass
+class MemberEvent:
+    """群成员进出（XEP-0045 presence）。sub_type：increase 为 approve；decrease 为 leave / kick / kick_me。"""
+    kind: Literal["increase", "decrease"]
+    sub_type: str
+    self_jid: str
+    room_jid: str
+    member: str                # 成员身份（与群消息的发送者身份一致）
+    operator: str = ""         # 操作者身份；未知为空
+    time: float = 0.0
+    archived: bool = False
+
+    @property
+    def message_id(self) -> str:
+        return f"member:{self.room_jid}:{self.member}:{self.kind}"

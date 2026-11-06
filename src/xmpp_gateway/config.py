@@ -36,6 +36,7 @@ class XmppCfg(Strict):
     # 输入状态（XEP-0085），只用于单聊、且只对自己发过输入状态的联系人：
     # 把消息推给框架后显示「正在输入」，回复时或 typing_timeout 秒后清除
     chat_states: bool = True
+    member_notices: bool = True   # 群成员进出 → notice.group_increase / group_decrease
     typing_timeout: int = 60
     report_typing: bool = False  # 对方开始/停止输入时推送 notice.notify.input_status（NapCat 扩展）
 

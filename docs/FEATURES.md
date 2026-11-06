@@ -37,7 +37,7 @@ What the gateway supports today, and what it does not support yet. Items marked 
 | Stable member identity (real JID or XEP-0421 occupant-id) | ✅ |
 | Group list, group info, member list, member info, leaving a group | ✅ |
 | OMEMO in group chats (encrypted group messages are ignored) | ⬜ Not supported yet |
-| Member join / leave notices (`group_increase` / `group_decrease`) | ⬜ Not supported yet |
+| Member join / leave notices (`group_increase` / `group_decrease`: leave, kick, bot kicked) | ✅ |
 | Kicking members (`set_group_kick`) | ⬜ Not supported yet |
 | Muting a member or the whole room (`set_group_ban` / `set_group_whole_ban`) | ⬜ Not supported yet |
 | Setting admins (`set_group_admin`) and admin change notices | ⬜ Not supported yet |

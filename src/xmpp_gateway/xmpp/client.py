@@ -15,7 +15,7 @@ import slixmpp
 from slixmpp.xmlstream import ET
 
 from ..config import MediaCfg
-from ..core.events import ContactEvent, MessageEvent, RecallEvent, Scene, Segment, TypingEvent
+from ..core.events import ContactEvent, MemberEvent, MessageEvent, RecallEvent, Scene, Segment, TypingEvent
 from . import media
 
 log = logging.getLogger(__name__)
@@ -84,6 +84,10 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         self.add_event_handler("groupchat_presence", self._on_muc_presence)
         self._occ_rooms: set[str] = set()                 # 声明支持 XEP-0421 的房间（只有这些房间的 occupant-id 可信）
         self._occ: dict[tuple[str, str], str] = {}       # (room, nick) -> occupant-id
+        # 已收到自己进房 presence（状态码 110）的房间：之前到达的是房间现有成员列表，不算有人进群
+        self._room_ready: set[str] = set()
+        self._present: dict[str, set[str]] = {}          # room -> 在场昵称
+        self._renamed: set[tuple[str, str]] = set()      # (room, 新昵称)：改昵称后的上线不算进群
         self._nick_rooms_warned: set[str] = set()
         self.add_event_handler("groupchat_invite", self._on_invite)          # XEP-0045 mediated
         self.add_event_handler("groupchat_direct_invite", self._on_invite)   # XEP-0249 direct
@@ -129,6 +133,9 @@ class GatewayXMPP(slixmpp.ClientXMPP):
 
     async def _on_disconnected(self, reason=None) -> None:
         was_online, self.online = self.online, False
+        self._room_ready.clear()
+        self._present.clear()
+        self._renamed.clear()
         if self._stopping:
             return
         if was_online:
@@ -256,6 +263,8 @@ class GatewayXMPP(slixmpp.ClientXMPP):
 
     async def join_room(self, room: str) -> None:
         muc = self.plugin["xep_0045"]
+        self._room_ready.discard(room)
+        self._present.pop(room, None)
         # maxstanzas=0：不回放历史消息，避免把旧消息当新事件推给 bot
         try:
             res = await muc.join_muc_wait(slixmpp.JID(room), self.cfg.nick, maxstanzas=0,
@@ -285,15 +294,93 @@ class GatewayXMPP(slixmpp.ClientXMPP):
 
     # ---------- 房间成员身份 ----------
     def _on_muc_presence(self, pres) -> None:
+        # 同步处理器：在 slixmpp 更新房间成员表之前运行，离开者的真实 JID 还查得到
         room, nick = pres["from"].bare, pres["from"].resource
-        if not nick:
-            return
-        if pres["type"] == "unavailable":
-            self._occ.pop((room, nick), None)
+        if not nick or pres["type"] == "error":
             return
         el = pres.xml.find(f"{{{NS_OCC}}}occupant-id")
-        if room in self._occ_rooms and el is not None and el.get("id"):
+        if pres["type"] != "unavailable" and room in self._occ_rooms and el is not None and el.get("id"):
             self._occ[(room, nick)] = el.get("id")
+        try:
+            self._member_change(pres, room, nick)
+        finally:
+            if pres["type"] == "unavailable":
+                self._occ.pop((room, nick), None)
+
+    def _member_change(self, pres, room: str, nick: str) -> None:
+        codes = set(pres["muc"]["status_codes"])
+        gone = pres["type"] == "unavailable"
+        present = self._present.setdefault(room, set())
+        if 110 in codes:   # 自己的 presence
+            if not gone:
+                self._room_ready.add(room)
+                present.add(nick)
+                return
+            was_ready = room in self._room_ready
+            self._room_ready.discard(room)
+            self._present.pop(room, None)
+            if 303 in codes or not was_ready:
+                return
+            if codes & {301, 307, 321, 322, 332}:
+                if codes & {301, 307, 321, 322}:
+                    log.warning("removed from room %s (status %s)", room, sorted(codes))
+                    self._forget_room(room)
+                if self.cfg.member_notices and not self._stopping:
+                    self.bus.publish(MemberEvent("decrease", "kick_me", self.boundjid.bare, room,
+                                                 self.boundjid.bare, self._actor(pres, room), time=time.time()))
+            return
+        if gone:
+            if 303 in codes:   # 改昵称：随后以新昵称上线
+                new = pres["muc"]["item_nick"] or ""
+                if nick in present and new:
+                    self._renamed.add((room, new))
+                present.discard(nick)
+                return
+            if nick not in present:
+                return
+            present.discard(nick)
+            sub = "kick" if codes & {301, 307, 321, 322} else "leave"
+        else:
+            if nick in present:
+                return   # 在场成员的状态更新
+            present.add(nick)
+            if (room, nick) in self._renamed:
+                self._renamed.discard((room, nick))
+                return
+            if room not in self._room_ready:
+                return   # 进房时收到的现有成员列表
+            sub = "approve"
+        if not self.cfg.member_notices or self._stopping:
+            return
+        member = self._presence_ident(pres, room, nick)
+        operator = member if sub == "leave" else self._actor(pres, room) if sub == "kick" else ""
+        self.bus.publish(MemberEvent("decrease" if gone else "increase", sub, self.boundjid.bare, room,
+                                     member, operator, time=time.time()))
+
+    def _presence_ident(self, pres, room: str, nick: str) -> str:
+        real = pres["muc"]["jid"]
+        if real and real.bare:
+            return real.bare
+        return self.occupant_ident(room, nick, pres)
+
+    def _actor(self, pres, room: str) -> str:
+        """踢人/封禁 presence 里的 <actor>：真实 JID 或昵称（换成该成员的身份）。"""
+        actor = pres.xml.find("{http://jabber.org/protocol/muc#user}x/{http://jabber.org/protocol/muc#user}item/"
+                              "{http://jabber.org/protocol/muc#user}actor")
+        if actor is None:
+            return ""
+        if actor.get("jid"):
+            return slixmpp.JID(actor.get("jid")).bare
+        if actor.get("nick"):
+            return self.occupant_ident(room, actor.get("nick"))
+        return ""
+
+    def _forget_room(self, room: str) -> None:
+        """被踢出/封禁：不再当作已加入，发往该房间的消息会报错。"""
+        muc = self.plugin["xep_0045"]
+        jid = slixmpp.JID(room)
+        for table in (muc.rooms, muc.our_nicks):
+            table.get(None, {}).pop(jid, None)
 
     def occupant_ident(self, room: str, nick: str, stanza=None) -> str:
         """房间成员的稳定身份（映射成 OneBot user_id）：
