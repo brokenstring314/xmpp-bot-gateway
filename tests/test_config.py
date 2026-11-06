@@ -44,7 +44,8 @@ def test_log_level_validated(tmp_path):
 
 def test_enum_values_validated(tmp_path):
     for section, line in (("xmpp", 'tls="ssl"'), ("onebot_v11", 'message_format="json"'), ("omemo", 'trust="yes"'),
-                          ("xmpp", 'accept_invites="friends"')):
+                          ("xmpp", 'accept_invites="friends"'),
+                          ("xmpp", 'contact_requests="ask"')):
         extra = f"[{section}]\n{line}\n" if section != "xmpp" else ""
         body = f'[xmpp]\njid="a@b"\npassword="p"\n{line if section == "xmpp" else ""}\n{extra}'
         with pytest.raises(ValueError):

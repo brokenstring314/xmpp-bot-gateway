@@ -43,3 +43,18 @@ class RecallEvent:
     target_id: str             # 被撤回消息的 XMPP id（群聊为房间 stanza-id）
     time: float = 0.0
     archived: bool = False
+
+
+@dataclass
+class ContactEvent:
+    """联系人（好友）相关：request = 收到订阅请求，等框架决定；added = 已成为联系人。"""
+    kind: Literal["request", "added"]
+    self_jid: str
+    sender_jid: str            # 对方 bare JID
+    comment: str = ""          # 订阅请求附带的说明文字（presence status）
+    time: float = 0.0
+    archived: bool = False
+
+    @property
+    def message_id(self) -> str:
+        return f"{self.kind}:{self.sender_jid}"

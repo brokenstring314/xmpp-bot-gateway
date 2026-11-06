@@ -28,6 +28,7 @@ class MockApp:
     def __init__(self):
         self.ws, self.events, self.pending, self.n = None, [], {}, 0
         self.notices: list = []
+        self.requests: list = []
 
     async def handler(self, request):
         ws = web.WebSocketResponse()
@@ -43,6 +44,8 @@ class MockApp:
                 self.events.append(d)
             elif d.get("post_type") == "notice":
                 self.notices.append(d)
+            elif d.get("post_type") == "request":
+                self.requests.append(d)
         return ws
 
     async def call(self, action, **params):

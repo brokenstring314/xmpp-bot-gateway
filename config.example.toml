@@ -28,6 +28,9 @@ mam_max_messages = 50 # per archive
 mam_max_age = 86400   # s, only fetch messages newer than this
 reconnect_max = 60    # s, max backoff between XMPP reconnects
 join_timeout = 30     # s, how long to wait when joining a room
+# contact requests: accept = approve all and subscribe back; report = send request.friend to the bot
+# framework and wait for set_friend_add_request; reject = refuse all
+contact_requests = "accept"
 
 [omemo]
 # OMEMO for direct chats; needs the optional dependencies: pip install -e ".[omemo]"

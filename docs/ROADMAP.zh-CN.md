@@ -22,6 +22,7 @@
   - 待做：定期复查依赖漏洞（下次 2026-11 底）
 - **Docker**（2026-10-30）：`Dockerfile`（多阶段构建，非 root uid 10001，默认含 OMEMO 依赖，`EXTRAS=` 可去掉）、`docker-compose.example.yml`，收到 SIGTERM 正常退出。`tests/docker_smoke.py`（9 项：`--check`、带 OMEMO 启动、收发往返、状态写入数据卷、SIGTERM 停止、同一数据重启）在 CI 中对构建出的镜像运行。推送版本标签时向 GHCR 发布 amd64/arm64 镜像。
 - **v0.1.0**（2026-10-30）：首个版本标签（P0–P2、质量阶段、Docker）。另外补充了包元数据（关键词、分类、项目链接）和 DOAP 项目描述（`xmpp-bot-gateway.doap`，XEP-0453）。许可证与商标复查：Docker 镜像标注为 `Apache-2.0 AND AGPL-3.0-only`，README 说明镜像的 AGPL 条款，并加入商标与无隶属声明。
+- **联系人**（2026-11-06）：`xmpp.contact_requests` = `accept`（默认，即原有行为，新增 `notice.friend_add`）/ `report`（`request.friend` + `set_friend_add_request`，可设花名册备注 `remark`）/ `reject`；新增 `delete_friend`；离线期间的请求由服务器重新投递，登录后上报。`tests/e2e_contacts.py` 23/23（已进 CI）。
 - **P3 多协议**（暂缓）：Satori 接 Koishi；OneBot v11 正向 WS / HTTP API；OneBot 12 / Milky 视需求
 - **P4**（暂缓）：OMEMO 群聊（非匿名 members-only 房间）、多账号、WebUI
 

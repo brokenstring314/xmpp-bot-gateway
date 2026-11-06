@@ -25,6 +25,7 @@ jobs:
       - run: set -o pipefail; python -u tests/e2e_p0.py 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -u tests/e2e_media.py 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -u tests/e2e_reply.py 2>&1 | tee -a /tmp/ci.log
+      - run: set -o pipefail; python -u tests/e2e_contacts.py 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -u tests/e2e_mam.py 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -u tests/e2e_omemo_resync.py 2>&1 | tee -a /tmp/ci.log
       - run: set -o pipefail; python -u tests/e2e_redteam.py 2>&1 | tee -a /tmp/ci.log

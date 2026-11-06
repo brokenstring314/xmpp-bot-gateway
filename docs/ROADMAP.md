@@ -22,6 +22,7 @@ For a checklist of what is supported now, see [FEATURES.md](FEATURES.md).
   - To do: recheck dependency vulnerabilities periodically (next: end of November 2026).
 - **Docker** (2026-10-30): `Dockerfile` (multi-stage, non-root uid 10001, OMEMO extra included by default, `EXTRAS=` to drop it), `docker-compose.example.yml`, clean shutdown on SIGTERM. `tests/docker_smoke.py` (9 checks: `--check`, start with OMEMO, round trip, state in the data volume, stop on SIGTERM, restart on the same data) runs against the built image in CI. Version tags publish amd64/arm64 images to GHCR.
 - **v0.1.0** (2026-10-30): first tagged release (P0–P2, quality phase, Docker). Also adds package metadata (keywords, classifiers, project URLs) and a DOAP project description (`xmpp-bot-gateway.doap`, XEP-0453). License and trademark review: the Docker image is labelled `Apache-2.0 AND AGPL-3.0-only`, the README explains the AGPL terms of the image and adds a trademark and non-affiliation notice.
+- **Contacts** (2026-11-06): `xmpp.contact_requests` = `accept` (default, previous behaviour, now with `notice.friend_add`) / `report` (`request.friend` + `set_friend_add_request`, with optional roster `remark`) / `reject`; `delete_friend`; requests made while offline are redelivered by the server and reported after login. `tests/e2e_contacts.py` 23/23 (in CI).
 - **P3 More protocols** (on hold): Satori; OneBot v11 forward WebSocket and HTTP API; OneBot 12 as needed.
 - **P4** (on hold): OMEMO in group chats (non-anonymous members-only rooms), multiple accounts, web UI.
 

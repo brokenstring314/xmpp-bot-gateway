@@ -12,7 +12,7 @@ import time
 import aiohttp
 
 from ... import __version__
-from ...core.events import RecallEvent, Scene
+from ...core.events import ContactEvent, RecallEvent, Scene
 from ...xmpp import media
 from . import cq
 
@@ -116,7 +116,12 @@ class OneBotV11:
                 log.info("dropping stale event %s (%.0fs old)", ev.message_id, time.time() - ev.time)
                 continue
             try:
-                payload = await (self._translate_recall(ev) if isinstance(ev, RecallEvent) else self._translate(ev))
+                if isinstance(ev, RecallEvent):
+                    payload = await self._translate_recall(ev)
+                elif isinstance(ev, ContactEvent):
+                    payload = await self._translate_contact(ev)
+                else:
+                    payload = await self._translate(ev)
                 if payload is None:
                     continue
             except Exception:  # noqa: BLE001
@@ -168,6 +173,15 @@ class OneBotV11:
             return base | {"notice_type": "group_recall", "operator_id": uid,
                            "group_id": await self.idmap.to_int("group", ev.room_jid)}
         return base | {"notice_type": "friend_recall"}
+
+    async def _translate_contact(self, ev: ContactEvent) -> dict:
+        """request -> request.friend（flag 为对方 JID，服务器会在重连后重发未答复的请求）；added -> notice.friend_add。"""
+        base = {"time": int(ev.time or time.time()), "self_id": self.self_id,
+                "user_id": await self.idmap.to_int("user", ev.sender_jid)}
+        if ev.kind == "request":
+            return base | {"post_type": "request", "request_type": "friend", "comment": ev.comment,
+                           "flag": ev.sender_jid}
+        return base | {"post_type": "notice", "notice_type": "friend_add"}
 
     async def _translate(self, ev) -> dict:
         segs = []
@@ -421,6 +435,27 @@ class OneBotV11:
             out.append({"user_id": await self.idmap.to_int("user", jid),
                         "nickname": item["name"] or jid.split("@")[0], "remark": item["name"] or ""})
         return ok(out)
+
+    async def a_set_friend_add_request(self, p):
+        flag = str(p.get("flag") or "")
+        approve = p.get("approve", True)
+        if isinstance(approve, str):
+            approve = approve.lower() not in ("false", "0", "no")
+        try:
+            await self.xmpp.answer_contact(flag, bool(approve), str(p.get("remark") or ""))
+        except KeyError:
+            raise ActionError(100, "no pending contact request with that flag") from None
+        return ok()
+
+    async def a_delete_friend(self, p):
+        jid = await self._jid("user", p.get("user_id"))
+        if "@" not in jid or "/" in jid or jid.startswith("occupant-id:") or jid not in self.xmpp.client_roster:
+            raise ActionError(100, "that user is not a contact")
+        try:
+            await self.xmpp.remove_contact(jid)
+        except Exception as e:  # noqa: BLE001
+            raise ActionError(100, f"remove failed: {e!r}") from e
+        return ok()
 
     async def a_get_stranger_info(self, p):
         jid = await self._jid("user", p.get("user_id"))

@@ -19,8 +19,8 @@ What the gateway supports today, and what it does not support yet. Items marked 
 | Retracting the bot's own messages; recall notices for a contact's retraction | ✅ |
 | Delivery receipts (XEP-0184) | ✅ |
 | Offline catch-up from the server archive (XEP-0313 MAM) | ✅ |
-| Contact requests: accepted automatically, not reported to the bot framework | 🟡 |
-| Contact request events and accept / reject / remove actions | ⬜ Not supported yet |
+| Contact requests: accept all, reject all, or report to the bot framework (`request.friend` / `set_friend_add_request`), `friend_add` notices | ✅ |
+| Removing contacts (`delete_friend`) | ✅ |
 | Message corrections (XEP-0308) | ⬜ Not supported yet |
 | Reactions (XEP-0444) | ⬜ Not supported yet |
 | Typing notifications (XEP-0085) | ⬜ Not supported yet |

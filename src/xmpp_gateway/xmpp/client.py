@@ -15,7 +15,7 @@ import slixmpp
 from slixmpp.xmlstream import ET
 
 from ..config import MediaCfg
-from ..core.events import MessageEvent, RecallEvent, Scene, Segment
+from ..core.events import ContactEvent, MessageEvent, RecallEvent, Scene, Segment
 from . import media
 
 log = logging.getLogger(__name__)
@@ -81,6 +81,13 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         self._nick_rooms_warned: set[str] = set()
         self.add_event_handler("groupchat_invite", self._on_invite)          # XEP-0045 mediated
         self.add_event_handler("groupchat_direct_invite", self._on_invite)   # XEP-0249 direct
+        # 好友（订阅）请求：accept = 自动同意并回加；report = 上报给框架，等 set_friend_add_request；
+        # reject = 自动拒绝。auto_authorize=None 时 slixmpp 不自动处理
+        mode = cfg.contact_requests
+        self.roster.auto_authorize = {"accept": True, "report": None, "reject": False}[mode]  # type: ignore[assignment]  # None = 不自动处理
+        self.roster.auto_subscribe = mode == "accept"
+        self._pending_contacts: set[str] = set()   # report 模式下尚未答复的请求
+        self.add_event_handler("roster_subscription_request", self._on_contact_request)
 
     # ---------- 连接 / 重连 ----------
     def start(self) -> None:
@@ -362,6 +369,55 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             await self.join_room(room)
         except Exception as e:  # noqa: BLE001
             log.error("failed to join invited room %s: %s", room, e)
+
+    # ---------- 联系人（订阅请求） ----------
+    def _on_contact_request(self, pres) -> None:
+        """slixmpp 的自动处理（若开启）先于本处理器运行。"""
+        if self._stopping:
+            return
+        jid = pres["from"].bare
+        if not pres["from"].user or jid == self.boundjid.bare:
+            return
+        mode = self.cfg.contact_requests
+        if mode == "reject":
+            log.info("rejected contact request from %s", jid)
+            return
+        if not self._allow(jid):
+            return
+        if mode == "accept":
+            log.info("accepted contact request from %s", jid)
+            self.bus.publish(ContactEvent("added", self.boundjid.bare, jid, time=time.time()))
+            return
+        if len(self._pending_contacts) >= 1000:   # 防止大量请求撑爆内存；服务器会在下次登录时重发
+            log.warning("too many pending contact requests; ignoring %s", jid)
+            return
+        self._pending_contacts.add(jid)
+        log.info("contact request from %s reported to the bot framework", jid)
+        self.bus.publish(ContactEvent("request", self.boundjid.bare, jid,
+                                      comment=self._clip(pres["status"] or "", jid), time=time.time()))
+
+    async def answer_contact(self, jid: str, approve: bool, remark: str = "") -> None:
+        """答复 report 模式下上报的好友请求。同意时回加对方（双向订阅）。"""
+        if jid not in self._pending_contacts:
+            raise KeyError(jid)
+        self._pending_contacts.discard(jid)
+        item = self.client_roster[jid]
+        if not approve:
+            item.unauthorize()
+            log.info("rejected contact request from %s", jid)
+            return
+        item.authorize()
+        if not item["to"]:
+            item.subscribe()
+        if remark:
+            await self.update_roster(slixmpp.JID(jid), name=remark)  # type: ignore[misc]
+        log.info("approved contact request from %s", jid)
+        self.bus.publish(ContactEvent("added", self.boundjid.bare, jid, time=time.time()))
+
+    async def remove_contact(self, jid: str) -> None:
+        """从花名册删除联系人：服务器同时取消双向订阅（RFC 6121 2.5）。"""
+        self._pending_contacts.discard(jid)
+        await self.del_roster_item(jid)
 
     def _set_omemo_peer(self, jid: str, encrypted: bool) -> None:
         if encrypted == (jid in self._omemo_peers):

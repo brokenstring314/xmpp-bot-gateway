@@ -31,6 +31,8 @@ class XmppCfg(Strict):
     reconnect_max: int = 60      # s；XMPP 断线重连最大退避
     status: str = ""             # 在线状态文字（presence status）
     join_timeout: int = 30       # s；加入群聊等待超时
+    # 好友（订阅）请求：accept = 自动同意并回加；report = 作为 request.friend 上报，由框架决定；reject = 自动拒绝
+    contact_requests: Literal["accept", "report", "reject"] = "accept"
 
     @field_validator("accept_invites", mode="before")
     @classmethod
