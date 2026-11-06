@@ -360,7 +360,7 @@ class OneBotV11:
         xid = ",".join(ids)
         mid = await self.idmap.save_message(
             scene="group" if group else "private", chat=target, sender=self.xmpp.boundjid.bare,
-            sender_name=self.xmpp.cfg.nick, xmpp_id=xid, outgoing=True, segments=segments)
+            sender_name=self.xmpp.my_nick(target) if group else self.xmpp.cfg.nick, xmpp_id=xid, outgoing=True, segments=segments)
         return ok({"message_id": mid})
 
     async def _reply_ref(self, segments: list[dict], target: str, group: bool) -> tuple[str, str, str] | None:
@@ -377,7 +377,7 @@ class OneBotV11:
             return None
         xid = rec["xmpp_id"].split(",")[0]
         if group:
-            nick = self.xmpp.cfg.nick if rec["outgoing"] else rec["sender_name"]
+            nick = self.xmpp.my_nick(target) if rec["outgoing"] else rec["sender_name"]
             to = f"{target}/{nick}"
             if rec["outgoing"]:
                 xid = self.xmpp.room_id_of_own(target, xid)
@@ -545,5 +545,39 @@ class OneBotV11:
 
     async def a_set_group_leave(self, p):
         room = await self._jid("group", p.get("group_id"))
-        self.xmpp.plugin["xep_0045"].leave_muc(room, self.xmpp.cfg.nick)
+        self.xmpp.plugin["xep_0045"].leave_muc(room, self.xmpp.my_nick(room))
         return ok()
+
+    async def a_set_group_card(self, p):
+        """只能改机器人自己的群昵称（XMPP 里不能改别人的昵称）；card 为空时恢复配置里的 nick。"""
+        room = await self._joined_room(p)
+        if int(p.get("user_id") or 0) != self.self_id:
+            raise ActionError(100, "XMPP can only change the bot's own nickname")
+        card = str(p.get("card") or "").strip() or self.xmpp.cfg.nick
+        if len(card) > 256 or any(ord(c) < 32 for c in card):
+            raise ActionError(100, "invalid nickname")
+        try:
+            await self.xmpp.set_nick(room, card)
+        except asyncio.TimeoutError:
+            raise ActionError(100, "nickname change timed out") from None
+        except Exception as e:  # noqa: BLE001  如 conflict（昵称已被占用）、not-acceptable
+            raise ActionError(100, f"nickname change refused: {e}") from None
+        return ok()
+
+    async def a_set_group_name(self, p):
+        """改房间名，需要机器人是房主。"""
+        room = await self._joined_room(p)
+        name = str(p.get("group_name") or "").strip()
+        if not name:
+            raise ActionError(100, "group_name is empty")
+        try:
+            await self.xmpp.set_room_name(room, name)
+        except Exception as e:  # noqa: BLE001  forbidden 等：机器人不是房主
+            raise ActionError(100, f"room name change refused: {getattr(e, 'condition', None) or e!r}") from None
+        return ok()
+
+    async def _joined_room(self, p) -> str:
+        room = await self._jid("group", p.get("group_id"))
+        if room not in self.xmpp.rooms():
+            raise ActionError(100, f"not in room {room}")
+        return room

@@ -82,12 +82,16 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         self.add_event_handler("message", self._on_message)
         self.add_event_handler("groupchat_message", self._on_groupchat)
         self.add_event_handler("groupchat_presence", self._on_muc_presence)
+        self.add_event_handler("presence_error", self._on_presence_error)
         self._occ_rooms: set[str] = set()                 # 声明支持 XEP-0421 的房间（只有这些房间的 occupant-id 可信）
         self._occ: dict[tuple[str, str], str] = {}       # (room, nick) -> occupant-id
         # 已收到自己进房 presence（状态码 110）的房间：之前到达的是房间现有成员列表，不算有人进群
         self._room_ready: set[str] = set()
         self._present: dict[str, set[str]] = {}          # room -> 在场昵称
         self._renamed: set[tuple[str, str]] = set()      # (room, 新昵称)：改昵称后的上线不算进群
+        self._nicks: dict[str, str] = {}                 # room -> 机器人在该房间的昵称（set_group_card 可改，持久化）
+        self._old_nicks: dict[str, set[str]] = {}        # room -> 机器人用过的旧昵称（MAM 补拉时识别自己的旧消息）
+        self._nick_wait: dict[tuple[str, str], asyncio.Future] = {}   # (room, 新昵称) -> 改名结果
         self._nick_rooms_warned: set[str] = set()
         self.add_event_handler("groupchat_invite", self._on_invite)          # XEP-0045 mediated
         self.add_event_handler("groupchat_direct_invite", self._on_invite)   # XEP-0249 direct
@@ -265,9 +269,13 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         muc = self.plugin["xep_0045"]
         self._room_ready.discard(room)
         self._present.pop(room, None)
+        if room not in self._nicks:
+            self._nicks[room] = await self.idmap.get_state(f"nick:{room}") or self.cfg.nick
+            old = await self.idmap.get_state(f"oldnicks:{room}")
+            self._old_nicks[room] = set(json.loads(old)) if old else set()
         # maxstanzas=0：不回放历史消息，避免把旧消息当新事件推给 bot
         try:
-            res = await muc.join_muc_wait(slixmpp.JID(room), self.cfg.nick, maxstanzas=0,
+            res = await muc.join_muc_wait(slixmpp.JID(room), self.my_nick(room), maxstanzas=0,
                                           timeout=self.cfg.join_timeout)
         except BaseException:
             # slixmpp 在发出加入请求时就把房间记为已加入；失败（超时/报错）后要撤销，否则
@@ -315,11 +323,19 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             if not gone:
                 self._room_ready.add(room)
                 present.add(nick)
+                if self._nicks.get(room) != nick:   # 改名成功，或服务器改写了昵称（状态码 210）
+                    self._nicks[room] = nick
+                fut = self._nick_wait.pop((room, nick), None)
+                if fut and not fut.done():
+                    fut.set_result(nick)
+                return
+            if 303 in codes:   # 自己改昵称：随后以新昵称上线，不算离开
+                present.discard(nick)
                 return
             was_ready = room in self._room_ready
             self._room_ready.discard(room)
             self._present.pop(room, None)
-            if 303 in codes or not was_ready:
+            if not was_ready:
                 return
             if codes & {301, 307, 321, 322, 332}:
                 if codes & {301, 307, 321, 322}:
@@ -374,6 +390,43 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         if actor.get("nick"):
             return self.occupant_ident(room, actor.get("nick"))
         return ""
+
+    def _on_presence_error(self, pres) -> None:
+        room, nick = pres["from"].bare, pres["from"].resource
+        fut = self._nick_wait.pop((room, nick), None)
+        if fut and not fut.done():
+            fut.set_exception(RuntimeError(pres["error"]["condition"] or "error"))
+
+    def my_nick(self, room: str) -> str:
+        return self._nicks.get(room) or self.cfg.nick
+
+    def is_my_nick(self, room: str, nick: str, archived: bool = False) -> bool:
+        return nick == self.my_nick(room) or archived and nick in self._old_nicks.get(room, ())
+
+    async def set_nick(self, room: str, nick: str, timeout: float = 15) -> None:
+        """XEP-0045 §7.6 改昵称：向 room/新昵称 发 presence，等服务器回 303 + 新昵称上线，或报错（如 409 昵称已占用）。"""
+        old = self.my_nick(room)
+        if nick == old:
+            return
+        fut = asyncio.get_running_loop().create_future()
+        self._nick_wait[(room, nick)] = fut
+        self.send_presence(pto=f"{room}/{nick}", pstatus=self.cfg.status or None)
+        try:
+            await asyncio.wait_for(fut, timeout)
+        finally:
+            self._nick_wait.pop((room, nick), None)
+        olds = self._old_nicks.setdefault(room, set())
+        olds.add(old)
+        olds.discard(nick)
+        await self.idmap.set_state(f"nick:{room}", nick)
+        await self.idmap.set_state(f"oldnicks:{room}", json.dumps(sorted(olds)[-50:]))
+
+    async def set_room_name(self, room: str, name: str) -> None:
+        """改房间名（muc#roomconfig_roomname），需要房主权限。"""
+        form = self.plugin["xep_0004"].make_form(ftype="submit")
+        form.add_field(var="FORM_TYPE", ftype="hidden", value="http://jabber.org/protocol/muc#roomconfig")
+        form.add_field(var="muc#roomconfig_roomname", value=name)
+        await self.plugin["xep_0045"].set_room_config(slixmpp.JID(room), form)
 
     def _forget_room(self, room: str) -> None:
         """被踢出/封禁：不再当作已加入，发往该房间的消息会报错。"""
@@ -731,10 +784,12 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         t.add_done_callback(_log_failure)
 
     async def _handle_group(self, msg, archived_ts: float | None = None, archive_id: str | None = None) -> int:
-        if self.omemo and msg["mucnick"] != self.cfg.nick and self._omemo_plugin.is_encrypted(msg):
+        # 旧昵称只用于识别 MAM 补拉里自己的旧消息：实时消息里旧昵称可能已被别人占用
+        mine = bool(msg["mucnick"]) and self.is_my_nick(msg["from"].bare, msg["mucnick"], archived_ts is not None)
+        if self.omemo and not mine and self._omemo_plugin.is_encrypted(msg):
             log.info("ignoring OMEMO group message in %s (group OMEMO not supported yet)", msg["from"].bare)
             return 0
-        if msg["mucnick"] == self.cfg.nick:
+        if mine:
             oid = msg.xml.find("{urn:xmpp:sid:0}origin-id")
             sid = self._msg_id(msg)
             if oid is not None and oid.get("id") and sid != oid.get("id"):
@@ -746,14 +801,14 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             log.info("ignoring groupchat message from %s (not joined)", msg["from"].bare)
             return 0   # 防止伪造「群」：只认已加入的房间
         retract = msg.xml.find(f"{{{NS_RETRACT}}}retract")
-        if retract is not None and retract.get("id") and msg["mucnick"] and msg["mucnick"] != self.cfg.nick:
+        if retract is not None and retract.get("id") and msg["mucnick"] and not mine:
             room, nick = msg["from"].bare, msg["mucnick"]
             return await self._emit(RecallEvent(
                 scene=Scene.GROUP, self_jid=self.boundjid.bare,
                 sender_jid=self.occupant_ident(room, nick, msg), room_jid=room,
                 target_id=retract.get("id"), time=archived_ts or time.time(),
                 archived=archived_ts is not None), room)
-        if msg["mucnick"] == self.cfg.nick or not msg["body"] or not msg["mucnick"]:
+        if mine or not msg["body"] or not msg["mucnick"]:
             return 0  # 忽略自己的回显和房间本身的通知
         if archived_ts is None and msg.xml.find(NS_DELAY) is not None:
             return 0  # 加入时的历史回放：由 MAM 补拉统一处理
@@ -762,15 +817,15 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         body, reply = self._take_reply(msg, msg["body"])
         body = self._clip(body, sender)
         segments: list[Segment] = [reply] if reply else []
-        me = self.cfg.nick
+        me = self.my_nick(room)
         for sep in (":", ",", "，", "："):
             if body.startswith(me + sep):          # XMPP 惯例：「nick: 内容」即提及
                 segments.append(Segment("at", {"target": self.boundjid.bare}))
                 body = body[len(me) + 1:].lstrip()
                 break
         else:
-            mine = {f"xmpp:{self.boundjid.bare}", f"xmpp:{room}/{me}"}
-            if any(r.get("type") == "mention" and r.get("uri") in mine
+            my_uris = {f"xmpp:{self.boundjid.bare}", f"xmpp:{room}/{me}"}
+            if any(r.get("type") == "mention" and r.get("uri") in my_uris
                    for r in msg.xml.findall(f"{{{NS_REF}}}reference")):   # XEP-0372
                 segments.append(Segment("at", {"target": self.boundjid.bare}))
         oob = msg["oob"]["url"] if msg.xml.find("{jabber:x:oob}x") is not None else ""

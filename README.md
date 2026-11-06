@@ -36,6 +36,7 @@ A checklist of what is supported and what is not supported yet: [docs/FEATURES.m
 - Contact requests (presence subscriptions), set by `xmpp.contact_requests`: `"report"` (default) sends `request.friend` (the `flag` is the requester's JID) and waits for `set_friend_add_request`, which on approval subscribes back, sets the optional `remark` as the roster name and sends `notice.friend_add`; `"accept"` approves every request, subscribes back and sends `notice.friend_add`; `"reject"` refuses every request. Requests made while the gateway is offline are delivered by the server at the next login. `delete_friend` removes a contact and both subscriptions. Approved contacts count as roster contacts for `accept_invites = "roster"`, so with `"accept"` anyone who adds the bot can also invite it to rooms
 - Typing notifications (XEP-0085), direct chats only, and only to contacts whose own client sends them: after a message is passed to the bot framework the bot shows as typing until it replies, or for `xmpp.typing_timeout` seconds (default 60); `set_input_status` (`event_type` 1 = typing, anything else = stop) sets it by hand. With `xmpp.report_typing = true`, a contact starting or stopping typing is sent as `notice.notify.input_status` (`event_type` 1 or 0). Turn the bot's own typing off with `xmpp.chat_states = false`
 - Member join / leave notices in group chats: `notice.group_increase` (`approve`) and `notice.group_decrease` (`leave`, `kick` with the moderator as `operator_id` when the room names one, `kick_me` when the bot itself is kicked or banned; the room is then treated as left). The member list received when the bot joins or rejoins, status updates and nickname changes send nothing, and people who come and go while the bot is offline are not reported. `user_id` is the same as in that member's group messages. Turn off with `xmpp.member_notices = false`
+- `set_group_card` changes the bot's own nickname in one room (XMPP has no way to rename other members, so any other `user_id` fails); an empty `card` goes back to `xmpp.nick`. The new nickname is kept across restarts, and a taken nickname is refused. `set_group_name` changes the room name and needs the bot to be the room owner
 
 ### Hardening
 
@@ -48,7 +49,7 @@ A checklist of what is supported and what is not supported yet: [docs/FEATURES.m
 
 ### Supported actions
 
-`send_private_msg`, `send_group_msg`, `send_msg`, `delete_msg`, `get_msg`, `get_login_info`, `get_status`, `get_version_info`, `can_send_image`, `can_send_record`, `get_friend_list`, `set_friend_add_request`, `delete_friend`, `set_input_status`, `get_stranger_info`, `get_group_list`, `get_group_info`, `get_group_member_list`, `get_group_member_info`, `set_group_leave`.
+`send_private_msg`, `send_group_msg`, `send_msg`, `delete_msg`, `get_msg`, `get_login_info`, `get_status`, `get_version_info`, `can_send_image`, `can_send_record`, `get_friend_list`, `set_friend_add_request`, `delete_friend`, `set_input_status`, `get_stranger_info`, `get_group_list`, `get_group_info`, `get_group_member_list`, `get_group_member_info`, `set_group_leave`, `set_group_card`, `set_group_name`.
 
 Unsupported actions return `retcode 1404`. Failed actions return `status: "failed"` with a `wording` explaining why.
 
@@ -109,6 +110,7 @@ python3 -u tests/e2e_reply.py    # replies, delivery receipts, mentions, recall 
 python3 -u tests/e2e_contacts.py # contact requests in the three modes, delete_friend
 python3 -u tests/e2e_typing.py   # typing notifications (XEP-0085)
 python3 -u tests/e2e_members.py  # group member join / leave notices
+python3 -u tests/e2e_card.py  # bot nickname and room name
 python3 -u tests/e2e_mam.py      # offline catch-up via MAM
 ```
 

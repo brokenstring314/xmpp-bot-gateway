@@ -8,7 +8,7 @@
 bash tests/prosody/run.sh &          # 本地 Prosody（127.0.0.1:15222）
 python -m mypy                       # 类型检查
 python -m pytest -q tests/test_cq.py tests/test_props.py tests/test_config.py
-for t in p0 media reply contacts typing members mam omemo_resync redteam config config_omemo chaos; do python -u tests/e2e_$t.py; done
+for t in p0 media reply contacts typing members card mam omemo_resync redteam config config_omemo chaos; do python -u tests/e2e_$t.py; done
 # Docker 任务：先构建镜像，再运行 IMAGE=<镜像标签> python -u tests/docker_smoke.py
 # 统计覆盖率：把 `python -u` 换成 `python -u tests/cov_run.py`，然后 `coverage combine && coverage report`
 ```

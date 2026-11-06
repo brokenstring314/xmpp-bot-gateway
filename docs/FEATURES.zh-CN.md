@@ -41,7 +41,8 @@
 | 踢人（`set_group_kick`） | ⬜ 尚未支持 |
 | 禁言单人或全员（`set_group_ban` / `set_group_whole_ban`） | ⬜ 尚未支持 |
 | 设置管理员（`set_group_admin`）及管理员变动通知 | ⬜ 尚未支持 |
-| 修改机器人群昵称或群名 / 主题（`set_group_card` / `set_group_name`） | ⬜ 尚未支持 |
+| 修改机器人自己的群昵称（`set_group_card`）和群名（`set_group_name`，需要房主） | ✅ |
+| 修改群主题 | ⬜ 尚未支持 |
 | 群邀请请求上报给框架（`request.group` / `set_group_add_request`） | ⬜ 尚未支持 |
 | 与群成员的私信作为独立会话 | ⬜ 尚未支持 |
 

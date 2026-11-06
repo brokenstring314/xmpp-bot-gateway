@@ -41,7 +41,8 @@ What the gateway supports today, and what it does not support yet. Items marked 
 | Kicking members (`set_group_kick`) | ⬜ Not supported yet |
 | Muting a member or the whole room (`set_group_ban` / `set_group_whole_ban`) | ⬜ Not supported yet |
 | Setting admins (`set_group_admin`) and admin change notices | ⬜ Not supported yet |
-| Changing the bot's nickname or the room name / subject (`set_group_card` / `set_group_name`) | ⬜ Not supported yet |
+| Changing the bot's own nickname (`set_group_card`) and the room name (`set_group_name`, room owner only) | ✅ |
+| Changing the room subject | ⬜ Not supported yet |
 | Invitation requests reported to the framework (`request.group` / `set_group_add_request`) | ⬜ Not supported yet |
 | Private messages with a room member as a separate conversation | ⬜ Not supported yet |
 

@@ -25,6 +25,7 @@
 - **联系人**（2026-11-06）：`xmpp.contact_requests` = `accept`（默认，即原有行为，新增 `notice.friend_add`）/ `report`（`request.friend` + `set_friend_add_request`，可设花名册备注 `remark`）/ `reject`；新增 `delete_friend`；离线期间的请求由服务器重新投递，登录后上报。`tests/e2e_contacts.py` 23/23（已进 CI）。同日默认值改为 `report`。
 - **正在输入**（2026-11-06）：单聊 XEP-0085，只对发送输入状态的联系人：消息交给框架后发 `composing`，回复时或 `typing_timeout` 后发 `<active/>`；`set_input_status`；可选的 `notice.notify.input_status`（`report_typing`），去重、过期丢弃。群聊不含。`tests/e2e_typing.py` 18/18（已进 CI）。
 - **群成员进出通知**（2026-11-06）：MUC presence → `group_increase`（approve）/ `group_decrease`（leave；kick，操作者取 actor；kick_me，被踢/封禁后不再视为已加入）。（重新）进群时的成员列表、状态更新、改昵称（303）不推送。开关 `member_notices`。`tests/e2e_members.py` 11/11（已进 CI）。
+- **群昵称 / 群名**（2026-11-06）：`set_group_card`（只限机器人自己；XEP-0045 §7.6 改昵称，等 303 和新昵称上线或报错；每个房间的昵称存进 state 表，旧昵称只用于识别 MAM 补拉里自己的消息），`set_group_name`（muc#roomconfig_roomname，需要房主）。群主题未做。`tests/e2e_card.py` 18/18（已进 CI）。
 - **P3 多协议**（暂缓）：Satori 接 Koishi；OneBot v11 正向 WS / HTTP API；OneBot 12 / Milky 视需求
 - **P4**（暂缓）：OMEMO 群聊（非匿名 members-only 房间）、多账号、WebUI
 
