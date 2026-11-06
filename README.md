@@ -33,7 +33,8 @@ A checklist of what is supported and what is not supported yet: [docs/FEATURES.m
 - Stable numeric IDs for users, groups and messages, persisted in SQLite
 - OMEMO for direct chats (optional, `[omemo]` extra): encrypted incoming messages are decrypted, and replies to a contact whose last message was encrypted are encrypted too, using legacy OMEMO (`eu.siacs.conversations.axolotl`); if encryption fails the send fails instead of falling back to plaintext. Trust: blind trust before verification (`btbv`) or `manual`. Group chat OMEMO is not supported yet; encrypted group messages are ignored
 - Room invitations (XEP-0045 mediated and XEP-0249 direct) are accepted from roster contacts and `xmpp.admins` by default; set `xmpp.accept_invites` to `"all"` or `"none"` to change this
-- Contact requests (presence subscriptions), set by `xmpp.contact_requests`: `"accept"` (default) approves every request, subscribes back and sends `notice.friend_add`; `"report"` sends `request.friend` (the `flag` is the requester's JID) and waits for `set_friend_add_request`, which on approval subscribes back, sets the optional `remark` as the roster name and sends `notice.friend_add`; `"reject"` refuses every request. Requests made while the gateway is offline are delivered by the server at the next login. `delete_friend` removes a contact and both subscriptions. Approved contacts count as roster contacts for `accept_invites = "roster"`, so use `"report"` or `"reject"` if invitations should not be accepted from anyone who adds the bot
+- Contact requests (presence subscriptions), set by `xmpp.contact_requests`: `"report"` (default) sends `request.friend` (the `flag` is the requester's JID) and waits for `set_friend_add_request`, which on approval subscribes back, sets the optional `remark` as the roster name and sends `notice.friend_add`; `"accept"` approves every request, subscribes back and sends `notice.friend_add`; `"reject"` refuses every request. Requests made while the gateway is offline are delivered by the server at the next login. `delete_friend` removes a contact and both subscriptions. Approved contacts count as roster contacts for `accept_invites = "roster"`, so with `"accept"` anyone who adds the bot can also invite it to rooms
+- Typing notifications (XEP-0085), direct chats only, and only to contacts whose own client sends them: after a message is passed to the bot framework the bot shows as typing until it replies, or for `xmpp.typing_timeout` seconds (default 60); `set_input_status` (`event_type` 1 = typing, anything else = stop) sets it by hand. With `xmpp.report_typing = true`, a contact starting or stopping typing is sent as `notice.notify.input_status` (`event_type` 1 or 0). Turn the bot's own typing off with `xmpp.chat_states = false`
 
 ### Hardening
 
@@ -46,7 +47,7 @@ A checklist of what is supported and what is not supported yet: [docs/FEATURES.m
 
 ### Supported actions
 
-`send_private_msg`, `send_group_msg`, `send_msg`, `delete_msg`, `get_msg`, `get_login_info`, `get_status`, `get_version_info`, `can_send_image`, `can_send_record`, `get_friend_list`, `set_friend_add_request`, `delete_friend`, `get_stranger_info`, `get_group_list`, `get_group_info`, `get_group_member_list`, `get_group_member_info`, `set_group_leave`.
+`send_private_msg`, `send_group_msg`, `send_msg`, `delete_msg`, `get_msg`, `get_login_info`, `get_status`, `get_version_info`, `can_send_image`, `can_send_record`, `get_friend_list`, `set_friend_add_request`, `delete_friend`, `set_input_status`, `get_stranger_info`, `get_group_list`, `get_group_info`, `get_group_member_list`, `get_group_member_info`, `set_group_leave`.
 
 Unsupported actions return `retcode 1404`. Failed actions return `status: "failed"` with a `wording` explaining why.
 
@@ -105,6 +106,7 @@ python3 -u tests/e2e_p0.py       # end-to-end against a mock OneBot v11 app
 python3 -u tests/e2e_media.py    # media upload/download, including OMEMO-encrypted files
 python3 -u tests/e2e_reply.py    # replies, delivery receipts, mentions, recall notices
 python3 -u tests/e2e_contacts.py # contact requests in the three modes, delete_friend
+python3 -u tests/e2e_typing.py   # typing notifications (XEP-0085)
 python3 -u tests/e2e_mam.py      # offline catch-up via MAM
 ```
 

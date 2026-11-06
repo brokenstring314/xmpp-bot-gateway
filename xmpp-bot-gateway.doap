@@ -78,6 +78,13 @@
   </implements>
   <implements>
     <xmpp:SupportedXep>
+      <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0085.html"/>
+      <xmpp:status>partial</xmpp:status>
+      <xmpp:note>Direct chats only: composing while the bot framework handles a message, active with the reply</xmpp:note>
+    </xmpp:SupportedXep>
+  </implements>
+  <implements>
+    <xmpp:SupportedXep>
       <xmpp:xep rdf:resource="https://xmpp.org/extensions/xep-0313.html"/>
       <xmpp:status>partial</xmpp:status>
       <xmpp:since>0.1.0</xmpp:since>

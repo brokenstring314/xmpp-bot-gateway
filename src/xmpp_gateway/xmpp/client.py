@@ -15,7 +15,7 @@ import slixmpp
 from slixmpp.xmlstream import ET
 
 from ..config import MediaCfg
-from ..core.events import ContactEvent, MessageEvent, RecallEvent, Scene, Segment
+from ..core.events import ContactEvent, MessageEvent, RecallEvent, Scene, Segment, TypingEvent
 from . import media
 
 log = logging.getLogger(__name__)
@@ -27,6 +27,8 @@ NS_FALLBACK = "urn:xmpp:fallback:0"
 NS_RETRACT = "urn:xmpp:message-retract:1"
 NS_OOB = "jabber:x:oob"
 NS_OCC = "urn:xmpp:occupant-id:0"
+NS_CHATSTATES = "http://jabber.org/protocol/chatstates"
+TYPING_STATES = ("active", "composing", "paused", "inactive", "gone")
 OCC_PREFIX = "occupant-id:"
 
 
@@ -41,7 +43,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         self.cfg, self.bus, self.idmap = cfg, bus, idmap
         self.media_cfg = media_cfg or MediaCfg()
         for xep in ("xep_0030", "xep_0004", "xep_0045", "xep_0066", "xep_0199", "xep_0280",
-                    "xep_0249", "xep_0313", "xep_0359", "xep_0363"):
+                    "xep_0249", "xep_0313", "xep_0359", "xep_0363", "xep_0085"):
             self.register_plugin(xep)
         # XEP-0184：对方请求回执时自动回执（客户端显示「已送达」）
         self.register_plugin("xep_0184", {"auto_ack": True, "auto_request": False})
@@ -67,6 +69,10 @@ class GatewayXMPP(slixmpp.ClientXMPP):
                 "store_path": str(store / f"{cfg.jid.split('/')[0]}.json"),
                 "btbv": omemo_cfg.trust != "manual",
             }, module=omemo_mod)
+        # 发过输入状态的联系人（支持 XEP-0085）→ 只对它们发送输入状态
+        self._chatstate_peers: OrderedDict[str, None] = OrderedDict()
+        self._typing_timers: dict[str, asyncio.TimerHandle] = {}
+        self._peer_typing: dict[str, tuple[bool, float]] = {}   # 对方上次上报的输入状态与时间
         self.online = False
         self._stopping = False
         self._backoff = 2
@@ -88,6 +94,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         self.roster.auto_subscribe = mode == "accept"
         self._pending_contacts: set[str] = set()   # report 模式下尚未答复的请求
         self.add_event_handler("roster_subscription_request", self._on_contact_request)
+        self.add_event_handler("chatstate", self._on_chatstate)   # slixmpp 的 message 事件只含有正文的消息
 
     # ---------- 连接 / 重连 ----------
     def start(self) -> None:
@@ -105,6 +112,9 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         """先停止处理入站消息和补拉，再等连接真正关闭：关闭过程中到达的消息不处理（也不标记为已推送），
         下次启动由 MAM 补拉，避免在数据库关闭后半处理而丢消息。"""
         self._stopping = True
+        for t in self._typing_timers.values():
+            t.cancel()
+        self._typing_timers.clear()
         if self._catchup_task is not None and not self._catchup_task.done():
             self._catchup_task.cancel()
         if self.online or self.transport is not None:
@@ -476,6 +486,7 @@ class GatewayXMPP(slixmpp.ClientXMPP):
                 return 0  # 加密的回执/标记等，没有正文
             msg["body"] = dec["body"]
             encrypted = True
+        state = self._chat_state(msg) if archived_ts is None else None
         if not msg["body"]:
             return 0
         if msg.xml.find("{jabber:x:conference}x") is not None or \
@@ -497,12 +508,83 @@ class GatewayXMPP(slixmpp.ClientXMPP):
         segments = await self._media_segments(msg) or [Segment("text", {"text": body})]
         if reply:
             segments.insert(0, reply)
-        return await self._emit(MessageEvent(
+        self._peer_typing.pop(sender, None)   # 发来消息即停止输入
+        n = await self._emit(MessageEvent(
             scene=Scene.PRIVATE, self_jid=self.boundjid.bare, sender_jid=sender,
             room_jid=None, message_id=self._msg_id(msg), encrypted=encrypted,
             segments=segments, time=archived_ts or time.time(), archived=archived_ts is not None,
             sender_name=roster_name or (msg["from"].resource if is_muc_pm else msg["from"].user),
         ), "private")
+        if n and state and not is_muc_pm:
+            self.set_typing(sender, True)   # 框架处理中：对方看到「正在输入」
+        return n
+
+    # ---------- 输入状态（XEP-0085） ----------
+    def _chat_state(self, msg) -> str | None:
+        """单聊（非群私信）消息带的输入状态；同时记下对方支持输入状态。"""
+        if not msg["from"].user or msg["from"].bare in self.rooms():
+            return None
+        el = next((c for c in msg.xml if c.tag.startswith(f"{{{NS_CHATSTATES}}}")), None)
+        if el is None:
+            return None
+        state = el.tag.split("}")[1]
+        if state not in TYPING_STATES:
+            return None
+        jid = msg["from"].bare
+        self._chatstate_peers[jid] = None
+        self._chatstate_peers.move_to_end(jid)
+        while len(self._chatstate_peers) > 10000:
+            self._chatstate_peers.popitem(last=False)
+        return state
+
+    def _on_chatstate(self, msg) -> None:
+        """只带输入状态、没有正文的单聊消息（有正文的由 _process_message 处理）。"""
+        if msg["body"] or msg["type"] not in ("chat", "normal") or self._stopping:
+            return
+        state = self._chat_state(msg)
+        if state:
+            self._on_peer_state(msg["from"].bare, state)
+
+    def _on_peer_state(self, jid: str, state: str) -> None:
+        if not self.cfg.report_typing or self._stopping:
+            return
+        typing = state == "composing"
+        last = self._peer_typing.get(jid)
+        if last is None and not typing:
+            return   # 没报过「正在输入」，不必报「停止」
+        if last is not None and last[0] == typing:
+            return
+        if typing and last is not None and time.time() - last[1] < 1:
+            return   # 防止反复切换刷屏
+        if typing:
+            self._peer_typing[jid] = (True, time.time())
+        else:
+            self._peer_typing.pop(jid, None)
+        self.bus.publish(TypingEvent(self.boundjid.bare, jid, typing, time=time.time()))
+
+    def set_typing(self, jid: str, on: bool) -> bool:
+        """向支持输入状态的联系人发送 composing / active。返回是否发送。"""
+        if not self.cfg.chat_states or jid not in self._chatstate_peers or not self.online:
+            return False
+        t = self._typing_timers.pop(jid, None)
+        if t:
+            t.cancel()
+        msg = self.make_message(mto=jid, mtype="chat")
+        ET.SubElement(msg.xml, f"{{{NS_CHATSTATES}}}{'composing' if on else 'active'}")
+        ET.SubElement(msg.xml, "{urn:xmpp:hints}no-store")   # XEP-0334：不进存档 / 离线存储
+        msg.send()
+        if on and self.cfg.typing_timeout > 0:
+            self._typing_timers[jid] = asyncio.get_running_loop().call_later(
+                self.cfg.typing_timeout, self.set_typing, jid, False)
+        return True
+
+    def _mark_active(self, stanza, to: str) -> None:
+        """出站单聊消息带上 <active/>，清除「正在输入」。"""
+        t = self._typing_timers.pop(to, None)
+        if t:
+            t.cancel()
+        if self.cfg.chat_states and to in self._chatstate_peers:
+            ET.SubElement(stanza.xml, f"{{{NS_CHATSTATES}}}active")
 
     async def _media_segments(self, msg) -> list[Segment] | None:
         """正文仅为一个媒体链接时转成 image/record/video 段：
@@ -707,12 +789,15 @@ class GatewayXMPP(slixmpp.ClientXMPP):
             enc["id"] = mid
             ET.SubElement(enc.xml, "{urn:xmpp:sid:0}origin-id", {"id": mid})
             self._add_reply(enc, reply)
+            self._mark_active(enc, to)
             enc.send()   # URL 已在正文里；OOB 明文会泄露链接，加密时不附带
             return mid
         ET.SubElement(msg.xml, "{urn:xmpp:sid:0}origin-id", {"id": mid})  # XEP-0359
         if urls:
             msg["oob"]["url"] = urls[0]   # XEP-0066：客户端可内联显示
         self._add_reply(msg, reply)
+        if not group:
+            self._mark_active(msg, to)
         for begin, end, uri in mentions or []:   # XEP-0372：偏移按 Unicode 码位
             ET.SubElement(msg.xml, f"{{{NS_REF}}}reference",
                           {"type": "mention", "begin": str(begin), "end": str(end), "uri": uri})

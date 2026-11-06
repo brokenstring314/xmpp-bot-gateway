@@ -8,7 +8,7 @@
 bash tests/prosody/run.sh &          # local Prosody (127.0.0.1:15222)
 python -m mypy                       # type check
 python -m pytest -q tests/test_cq.py tests/test_props.py tests/test_config.py
-for t in p0 media reply contacts mam omemo_resync redteam config config_omemo chaos; do python -u tests/e2e_$t.py; done
+for t in p0 media reply contacts typing mam omemo_resync redteam config config_omemo chaos; do python -u tests/e2e_$t.py; done
 # Docker job: build the image, then IMAGE=<tag> python -u tests/docker_smoke.py
 # with coverage: replace `python -u` by `python -u tests/cov_run.py`, then `coverage combine && coverage report`
 ```

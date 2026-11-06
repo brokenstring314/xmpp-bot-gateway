@@ -58,3 +58,17 @@ class ContactEvent:
     @property
     def message_id(self) -> str:
         return f"{self.kind}:{self.sender_jid}"
+
+
+@dataclass
+class TypingEvent:
+    """单聊对方的输入状态（XEP-0085）：typing = True 开始输入，False 停止。"""
+    self_jid: str
+    sender_jid: str
+    typing: bool
+    time: float = 0.0
+    archived: bool = False
+
+    @property
+    def message_id(self) -> str:
+        return f"typing:{self.sender_jid}"

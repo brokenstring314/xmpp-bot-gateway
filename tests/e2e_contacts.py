@@ -192,4 +192,5 @@ async def main():
     os._exit(0 if passed == len(results) else 1)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

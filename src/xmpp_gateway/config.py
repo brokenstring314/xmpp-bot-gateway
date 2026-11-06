@@ -32,7 +32,12 @@ class XmppCfg(Strict):
     status: str = ""             # 在线状态文字（presence status）
     join_timeout: int = 30       # s；加入群聊等待超时
     # 好友（订阅）请求：accept = 自动同意并回加；report = 作为 request.friend 上报，由框架决定；reject = 自动拒绝
-    contact_requests: Literal["accept", "report", "reject"] = "accept"
+    contact_requests: Literal["accept", "report", "reject"] = "report"
+    # 输入状态（XEP-0085），只用于单聊、且只对自己发过输入状态的联系人：
+    # 把消息推给框架后显示「正在输入」，回复时或 typing_timeout 秒后清除
+    chat_states: bool = True
+    typing_timeout: int = 60
+    report_typing: bool = False  # 对方开始/停止输入时推送 notice.notify.input_status（NapCat 扩展）
 
     @field_validator("accept_invites", mode="before")
     @classmethod

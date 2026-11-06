@@ -12,7 +12,7 @@ import time
 import aiohttp
 
 from ... import __version__
-from ...core.events import ContactEvent, RecallEvent, Scene
+from ...core.events import ContactEvent, RecallEvent, Scene, TypingEvent
 from ...xmpp import media
 from . import cq
 
@@ -40,21 +40,23 @@ class OneBotV11:
     def __init__(self, cfg, bus, idmap, xmpp) -> None:
         self.cfg, self.bus, self.idmap, self.xmpp = cfg, bus, idmap, xmpp
         self.self_id = 0
+        # 在构造时订阅（早于 XMPP 登录）：登录瞬间到达的事件（如服务器重发的好友请求）不会漏掉
+        self._queues = [bus.subscribe() for _ in cfg.reverse_ws]
 
     async def run(self) -> None:
         self.self_id = await self.idmap.to_int("user", self.xmpp.boundjid.bare)
         if not self.cfg.reverse_ws:
             log.warning("OneBot v11 enabled but no reverse_ws configured")
         await asyncio.gather(*(self._reverse_ws(ep.url, self.cfg.access_token if ep.access_token is None
-                                                else ep.access_token) for ep in self.cfg.reverse_ws))
+                                                else ep.access_token, q)
+                               for ep, q in zip(self.cfg.reverse_ws, self._queues, strict=True)))
 
     # ---------- 连接管理 ----------
-    async def _reverse_ws(self, url: str, token: str) -> None:
+    async def _reverse_ws(self, url: str, token: str, events: asyncio.Queue) -> None:
         headers = {"X-Self-ID": str(self.self_id), "X-Client-Role": "Universal",
                    "User-Agent": f"xmpp-bot-gateway/{__version__}"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        events = self.bus.subscribe()
         carry: list = []
         delay = 1
         while True:
@@ -115,11 +117,15 @@ class OneBotV11:
             if self.cfg.event_max_age and not ev.archived and time.time() - ev.time > self.cfg.event_max_age:
                 log.info("dropping stale event %s (%.0fs old)", ev.message_id, time.time() - ev.time)
                 continue
+            if isinstance(ev, TypingEvent) and time.time() - ev.time > 10:
+                continue   # 积压的输入状态已无意义
             try:
                 if isinstance(ev, RecallEvent):
                     payload = await self._translate_recall(ev)
                 elif isinstance(ev, ContactEvent):
                     payload = await self._translate_contact(ev)
+                elif isinstance(ev, TypingEvent):
+                    payload = await self._translate_typing(ev)
                 else:
                     payload = await self._translate(ev)
                 if payload is None:
@@ -182,6 +188,13 @@ class OneBotV11:
             return base | {"post_type": "request", "request_type": "friend", "comment": ev.comment,
                            "flag": ev.sender_jid}
         return base | {"post_type": "notice", "notice_type": "friend_add"}
+
+    async def _translate_typing(self, ev: TypingEvent) -> dict:
+        """NapCat 扩展 notice.notify.input_status：event_type 1 = 正在输入，0 = 停止。"""
+        return {"time": int(ev.time or time.time()), "self_id": self.self_id, "post_type": "notice",
+                "notice_type": "notify", "sub_type": "input_status", "group_id": 0,
+                "user_id": await self.idmap.to_int("user", ev.sender_jid),
+                "event_type": 1 if ev.typing else 0, "status_text": "typing" if ev.typing else ""}
 
     async def _translate(self, ev) -> dict:
         segs = []
@@ -446,6 +459,15 @@ class OneBotV11:
         except KeyError:
             raise ActionError(100, "no pending contact request with that flag") from None
         return ok()
+
+    async def a_set_input_status(self, p):
+        """NapCat 扩展：event_type 1 = 显示「正在输入」，其他值 = 清除。只对支持输入状态的单聊联系人生效。"""
+        jid = await self._jid("user", p.get("user_id"))
+        try:
+            on = int(p.get("event_type", 1)) == 1
+        except (TypeError, ValueError):
+            raise ActionError(100, "event_type must be a number") from None
+        return ok({"sent": self.xmpp.set_typing(jid, on)})
 
     async def a_delete_friend(self, p):
         jid = await self._jid("user", p.get("user_id"))

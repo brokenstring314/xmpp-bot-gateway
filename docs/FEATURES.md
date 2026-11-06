@@ -23,7 +23,8 @@ What the gateway supports today, and what it does not support yet. Items marked 
 | Removing contacts (`delete_friend`) | ✅ |
 | Message corrections (XEP-0308) | ⬜ Not supported yet |
 | Reactions (XEP-0444) | ⬜ Not supported yet |
-| Typing notifications (XEP-0085) | ⬜ Not supported yet |
+| Typing notifications (XEP-0085) in direct chats: bot shows typing while the framework handles a message, `set_input_status`, optional `input_status` notices | ✅ |
+| Typing notifications in group chats | ⬜ Not supported yet |
 
 ## Group chats (MUC)
 

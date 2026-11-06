@@ -28,9 +28,13 @@ mam_max_messages = 50 # per archive
 mam_max_age = 86400   # s, only fetch messages newer than this
 reconnect_max = 60    # s, max backoff between XMPP reconnects
 join_timeout = 30     # s, how long to wait when joining a room
-# contact requests: accept = approve all and subscribe back; report = send request.friend to the bot
-# framework and wait for set_friend_add_request; reject = refuse all
-contact_requests = "accept"
+# contact requests: report = send request.friend to the bot framework and wait for set_friend_add_request;
+# accept = approve all and subscribe back; reject = refuse all
+contact_requests = "report"
+# typing notifications (XEP-0085), direct chats with contacts whose client sends them
+chat_states = true     # show the bot as typing while the framework handles a message
+typing_timeout = 60    # s, stop showing typing if no reply by then
+report_typing = false  # send notice.notify.input_status when a contact starts / stops typing
 
 [omemo]
 # OMEMO for direct chats; needs the optional dependencies: pip install -e ".[omemo]"
